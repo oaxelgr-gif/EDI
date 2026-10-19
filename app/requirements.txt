@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn==0.34.0
+httpx==0.28.1
+imap-tools==1.9.1
+msal==1.31.1
+PyYAML==6.0.2
+python-multipart==0.0.20
+tzdata==2024.2
+edge-tts>=6.1.12

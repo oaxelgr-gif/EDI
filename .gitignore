@@ -1,0 +1,11 @@
+# Secretos y datos personales: NUNCA subir a GitHub
+.env
+config/accounts.yaml
+data/
+*.sqlite3
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+assets/*.icns
+_to_delete/

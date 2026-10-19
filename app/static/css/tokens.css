@@ -1,0 +1,37 @@
+/* EDI · tokens de diseño
+   Consola nocturna de la Normandy: tinta violeta, ámbar de omni-tool para la voz de EDI,
+   verde agua cuando escucha. */
+:root {
+  --ink: #16141f;          /* fondo */
+  --ink-2: #1c1a28;        /* superficies elevadas (menú, formularios) */
+  --ink-3: #252233;        /* campos, hover */
+  --rule: #322e44;         /* líneas */
+  --text: #ece8f4;
+  --text-2: #b4adc6;
+  --dim: #8a83a0;
+  --signal: #f2b661;       /* EDI habla / acento principal */
+  --signal-ink: #2a1d08;   /* texto sobre ámbar */
+  --listen: #8fd3c7;       /* EDI escucha */
+  --alert: #f07a6a;
+  --ok: #9ad48a;
+
+  --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --sans: "Onest", -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+
+  /* escala tipográfica (razón 1.2) */
+  --fs-xs: .75rem;
+  --fs-sm: .875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.2rem;
+  --fs-xl: 1.44rem;
+  --fs-2xl: 1.73rem;
+  --fs-3xl: 2.07rem;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-pill: 999px;
+
+  --col: 760px;            /* ancho de la columna central */
+  --drawer: 296px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}

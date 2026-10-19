@@ -1,0 +1,42 @@
+# ============================================================
+#  Cuentas de correo que EDI revisará (sólo lectura).
+#  Copia a config/accounts.yaml. Las contraseñas van en .env.
+#  provider: gmail | yahoo | icloud | outlook | zoho | imap
+# ============================================================
+accounts:
+  - name: Personal            # nombre con el que EDI la menciona
+    provider: gmail
+    user: tu_correo@gmail.com
+    password_env: GMAIL_PERSONAL_PASS
+
+  - name: Escuela
+    provider: gmail           # Google Workspace también usa gmail
+    user: matricula@universidad.edu.mx
+    password_env: GMAIL_ESCUELA_PASS
+    enabled: false            # pon true cuando tengas la contraseña de aplicación
+
+  - name: Yahoo
+    provider: yahoo
+    user: tu_correo@yahoo.com
+    password_env: YAHOO_PASS
+    enabled: false
+
+  - name: iCloud
+    provider: icloud
+    user: tu_correo@icloud.com
+    password_env: ICLOUD_PASS
+    enabled: false
+
+  - name: Outlook
+    provider: outlook         # usa OAuth: ./scripts/edi.sh outlook tu_correo@outlook.com
+    user: tu_correo@outlook.com
+    enabled: false
+
+  # Cualquier otro servidor IMAP (trabajo, hosting propio):
+  # - name: Trabajo
+  #   provider: imap
+  #   host: mail.miempresa.com
+  #   port: 993
+  #   user: yo@miempresa.com
+  #   password_env: TRABAJO_PASS
+  #   folders: [INBOX]

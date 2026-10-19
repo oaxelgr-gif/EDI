@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>EDI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%2316141F'/><circle cx='32' cy='32' r='17' fill='none' stroke='%23F2B661' stroke-width='4' stroke-dasharray='3 3'/><circle cx='32' cy='32' r='6' fill='%23F2B661'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/shell.css">
+  <link rel="stylesheet" href="/static/css/chat.css">
+  <link rel="stylesheet" href="/static/css/views.css">
+</head>
+<body>
+  <div class="shell" id="shell">
+    <aside class="drawer" id="drawer" aria-label="Menú">
+      <div class="drawer-head">
+        <span class="mark" aria-hidden="true"></span>
+        <span class="wordmark">EDI</span>
+        <button class="icon-btn drawer-close" data-action="close-drawer" aria-label="Cerrar menú"></button>
+      </div>
+      <button class="btn btn-primary new-chat" data-action="new-chat"></button>
+      <nav class="drawer-nav" aria-label="Secciones">
+        <a href="#/tasks" data-nav="tasks"><span data-icon="list"></span>Pendientes<span class="count" id="countTasks"></span></a>
+        <a href="#/memory" data-nav="memory"><span data-icon="brain"></span>Memoria</a>
+        <a href="#/mail" data-nav="mail"><span data-icon="mail"></span>Correo<span class="count" id="countMail"></span></a>
+        <a href="#/settings" data-nav="settings"><span data-icon="gear"></span>Ajustes</a>
+      </nav>
+      <div class="drawer-section-title">Conversaciones</div>
+      <ul class="session-list" id="sessionList"></ul>
+    </aside>
+    <div class="scrim" data-action="close-drawer"></div>
+
+    <div class="stage">
+      <header class="topbar">
+        <button class="icon-btn" data-action="toggle-drawer" aria-label="Abrir menú" data-icon="menu"></button>
+        <div class="topbar-title" id="topTitle">EDI</div>
+        <div class="status" id="status" title="Estado"><span class="status-dot"></span><span class="status-text">conectando</span></div>
+      </header>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
