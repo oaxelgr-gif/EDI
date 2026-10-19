@@ -19,6 +19,13 @@ Este archivo lo lee Claude Code automáticamente al abrir el repo. Contiene el c
 6. **Secretos** sólo en `.env` y `config/accounts.yaml` (ignorados por git). Nunca imprimirlos en logs.
 7. **Todo en la carpeta del repo**; datos persistentes en `./data`.
 
+## v0.3 (estado actual)
+- **Red local:** `edi.serve` levanta 8000 (HTTP, sólo localhost:8765) y 8443 (HTTPS autofirmado, publicado en :8766). `security.PinMiddleware` exige PIN en HTTPS. `EDI_LAN_HOST` lo pone `scripts/edi.sh` en `.env`.
+- **Herramientas web sin llave:** `web.py` (tipo de cambio open.er-api, clima open-meteo, búsqueda DuckDuckGo + Wikipedia). Intents `exchange`, `weather`, `search`.
+- **Modelos retirados:** `providers.call_healing` cambia de modelo solo si el proveedor responde model_not_found.
+- **UI:** liquid glass morado neón, tema auto/oscuro/claro (`data-theme`), vistas en `static/js/views/*`, guía en `views/guide.js`.
+- **EDI Helper:** `helper/EDIHelper.swift` (AppKit + Speech + AVFoundation + Carbon). Barra de menú, “Hey EDI”, ⌥Espacio, HUD. Se compila en la Mac con `scripts/04_instalar_helper.sh` (log en `data/helper-build.log`).
+
 ## Mapa del código
 | Archivo | Responsabilidad |
 |---|---|

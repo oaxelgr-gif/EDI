@@ -1,10 +1,12 @@
 """Cerebro de EDI. Primero reglas locales (0 tokens); la IA sólo para resumir y conversar.
 Cada respuesta puede incluir una `action` para la interfaz (p. ej. abrir el formulario de correo)."""
 import logging
+import re
 import time
 from datetime import datetime
 
-from . import db, mail, providers
+from . import db, mail, providers, web
+from .intents import fold
 from .intents import detect
 
 log = logging.getLogger("edi.agent")
@@ -118,6 +120,35 @@ def handle(text: str, session_id: int, log_it: bool = True) -> dict:
             except Exception as e:
                 parts.append(f"No pude revisar el correo: {e}")
         reply = " ".join(parts)
+    elif n == "exchange":
+        code = web.find_currency(text) or "USD"
+        try:
+            reply = web.exchange(code)
+        except Exception as e:
+            log.warning("exchange: %s", e)
+            reply = "No pude consultar el tipo de cambio en este momento. Revisa la conexión a internet."
+    elif n == "weather":
+        city = web.find_city(intent.text) or s.get("home_city") or ""
+        if not city:
+            reply = "¿De qué ciudad quieres el clima? Puedes fijar tu ciudad en Ajustes."
+        else:
+            try:
+                reply = web.weather(city, tomorrow="manana" in fold(text) and "en la manana" not in fold(text))
+            except Exception as e:
+                log.warning("weather: %s", e)
+                reply = "No pude consultar el clima ahora. Revisa la conexión a internet."
+    elif n == "search":
+        query = intent.text or text
+        ctx, sources = web.research(query)
+        data["sources"] = sources
+        if not sources:
+            reply = "No encontré resultados en la web para eso, o no hay conexión a internet."
+        else:
+            ans, prov = providers.chat(
+                f"Con base en estos resultados de búsqueda de hoy ({now:%d/%m/%Y}), responde a: {query}. "
+                "Da el dato concreto primero, en 1 a 3 frases. Si los resultados no lo dicen, dilo.",
+                context=ctx, max_tokens=220)
+            reply = ans or f"Esto encontré: {sources[0]['title']}. {sources[0]['snippet']}"
     elif n == "settings_mail":
         reply = "Claro. Te abro el registro de correos: elige el proveedor, escribe tu correo y la contraseña de aplicación."
         action = {"open": "settings", "tab": "mail", "new": True}
@@ -184,7 +215,12 @@ def handle(text: str, session_id: int, log_it: bool = True) -> dict:
         ctx = (f"Fecha y hora: {now:%Y-%m-%d %H:%M}\n"
                + ("Notas relevantes:\n" + "\n".join("- " + x["text"] for x in notes) + "\n" if notes else "")
                + ("Pendientes:\n" + "\n".join("- " + x["text"] for x in tasks) if tasks else ""))
-        history = db.session_messages(session_id, 12)[:-1]
+        history = db.session_messages(session_id, 12)[:-1] if session_id else []
+        if re.search(r"\b(hoy|actual|actualmente|ultim[oa]s?|precio|cuanto cuesta|noticias?|202\d|esta semana)\b", fold(intent.text)):
+            web_ctx, sources = web.research(intent.text)   # datos frescos para preguntas de actualidad
+            if sources:
+                ctx += "\nResultados web de hoy:\n" + web_ctx
+                data["sources"] = sources
         ans, prov = providers.chat(intent.text, context=ctx, history=history)
         if ans:
             reply = ans

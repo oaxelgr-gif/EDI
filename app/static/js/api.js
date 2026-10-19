@@ -3,6 +3,7 @@ async function req(method, url, body) {
   const opts = { method, headers: {} };
   if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
   const r = await fetch(url, opts);
+  if (r.status === 401 && location.protocol === "https:") { location.href = "/login"; throw new Error("PIN requerido"); }
   if (!r.ok) {
     let msg = `Error ${r.status}`;
     try { const j = await r.json(); msg = j.detail || msg; } catch {}
@@ -53,8 +54,10 @@ export const api = {
   models: (id) => req("GET", `/api/providers/${id}/models`),
 
   voices: () => req("GET", "/api/tts/voices"),
-  tts: async (text, voice, rate) => {
-    const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice, rate }) });
+  devices: () => req("GET", "/api/devices"),
+  rotatePin: () => req("POST", "/api/devices/pin"),
+  tts: async (text, voice, rate, pitch) => {
+    const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice, rate, pitch }) });
     if (!r.ok) throw new Error("tts");
     return r.blob();
   },

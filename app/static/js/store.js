@@ -13,11 +13,12 @@ export const store = {
   muted: local.get("muted", false),
   wake: local.get("wake", false),
   drawerOpen: local.get("drawer", true),
+  theme: local.get("theme", "auto"),
   lastReply: "",
 
   set(patch) {
     Object.assign(this, patch);
-    for (const k of ["muted", "wake"]) if (k in patch) local.set(k, patch[k]);
+    for (const k of ["muted", "wake", "theme"]) if (k in patch) local.set(k, patch[k]);
     if ("sessionId" in patch) local.set("session", patch.sessionId);
     if ("drawerOpen" in patch) local.set("drawer", patch.drawerOpen);
     listeners.forEach((fn) => fn(patch));

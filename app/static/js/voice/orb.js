@@ -1,7 +1,16 @@
 // Anillo de voz: 96 marcas radiales, estilo lectura de omni-tool.
 // Ámbar cuando EDI habla, verde agua cuando escucha, respiración lenta en reposo.
 const TICKS = 96;
-const COLORS = { idle: [138, 131, 160], speaking: [242, 182, 97], loading: [242, 182, 97], listening: [143, 211, 199], wake: [143, 211, 199], armed: [143, 211, 199], blocked: [242, 182, 97] };
+// Colores tomados del tema activo (--accent-rgb y --listen-rgb), así funciona en claro y oscuro
+function themeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const rgb = (v, d) => (cs.getPropertyValue(v).trim() || d).split(",").map(Number);
+  const accent = rgb("--accent-rgb", "178,102,255"), listen = rgb("--listen-rgb", "125,211,252");
+  return { idle: accent, speaking: accent, loading: accent, blocked: accent, listening: listen, wake: listen, armed: listen };
+}
+let COLORS = themeColors();
+new MutationObserver(() => (COLORS = themeColors())).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => (COLORS = themeColors()));
 const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export function mountOrb(canvas, getState, getLevel) {
@@ -40,14 +49,17 @@ export function mountOrb(canvas, getState, getLevel) {
       const amp = active ? mirror : 0.04 + breathing * 0.05 * (i % 2 ? 1 : 0.6);
       const len = 3 + amp * R * 0.55 + (state === "loading" && !reduce ? 4 * Math.max(0, Math.sin(a * 3 - t * 6)) : 0);
       const inner = R - 2;
-      const alpha = active ? 0.45 + Math.min(0.55, amp * 1.2) : 0.4 + breathing * 0.15;
+      const alpha = active ? 0.5 + Math.min(0.5, amp * 1.2) : 0.32 + breathing * 0.18;
       ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
+      ctx.shadowColor = `rgba(${r},${g},${b},${active ? 0.9 : 0.5})`;
+      ctx.shadowBlur = active ? 10 : 5;
       ctx.lineWidth = i % 4 === 0 ? 2 : 1.25;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);
       ctx.lineTo(cx + Math.cos(a) * (inner + len), cy + Math.sin(a) * (inner + len));
       ctx.stroke();
     }
+    ctx.shadowBlur = 0;
     // núcleo
     const core = R * (0.42 + smooth * 0.12 + (active ? 0 : breathing * 0.02));
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, core);

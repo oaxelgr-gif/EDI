@@ -13,6 +13,7 @@ chmod +x scripts/*.sh
 ./scripts/01_instalar_dependencias.sh  # Fase 1: verifica Docker Desktop y construye EDI (--ollama para IA offline)
 ./scripts/02_configurar.sh             # Fase 2: nombre, IA gratis, cuentas de correo
 ./scripts/03_crear_acceso_directo.sh   # Fase 4: EDI.app y "Apagar EDI.app" en el Escritorio
+./scripts/04_instalar_helper.sh        # Fase 5: EDI Helper (barra de menú, "Hey EDI", ⌥Espacio)
 ```
 
 Doble clic en **EDI.app** → acepta el micrófono → di *"EDI, dame mi resumen"*.
@@ -21,7 +22,7 @@ Doble clic en **EDI.app** → acepta el micrófono → di *"EDI, dame mi resumen
 
 | Acción | Cómo |
 |---|---|
-| Encender | Doble clic en `EDI.app` (o `./scripts/edi.sh start`) |
+| Encender | Doble clic en `EDI.app`: ventana con barra de progreso, porcentaje y tiempo restante |
 | Apagar y liberar RAM | Doble clic en `Apagar EDI.app` (o `./scripts/edi.sh stop --all`) |
 | Hablar | Botón 🎙, `Ctrl+Espacio`, o activa **Escucha "EDI"** y di *"EDI, …"* |
 | Repetir | Di *"repite"*, botón **↻ Repetir** o el ↻ de cada mensaje |
@@ -30,6 +31,13 @@ Doble clic en **EDI.app** → acepta el micrófono → di *"EDI, dame mi resumen
 | Respaldo | `./scripts/edi.sh backup` |
 
 Ejemplos: *"recuérdame pagar la luz mañana a las 5"*, *"recuerda que el wifi está en el cajón"*, *"¿qué te dije del wifi?"*, *"¿tengo correos?"*, *"mis tareas"*, *"ya hice pagar la luz"*.
+
+## Novedades v0.3
+- **Siempre activo:** instala *EDI Helper* (doble clic en `Instalar EDI Helper.command`): ícono ◎ en la barra de menú, “Hey EDI” desde cualquier app y ⌥ + Espacio.
+- **En tu red:** abre EDI desde el celular u otra compu (Ajustes → Dispositivos: QR + PIN).
+- **Internet:** “búscame el precio del dólar”, “¿cómo está el clima?”, “busca quién ganó…”.
+- **Diseño:** liquid glass morado neón con tema claro y oscuro.
+- Guía completa: [docs/GUIA_DE_USO.md](docs/GUIA_DE_USO.md) (también dentro de EDI → Guía de uso).
 
 ## Configurar desde la interfaz (v0.2)
 - **Ajustes → Inteligencia:** agrega OmniRoute, Groq, OpenRouter, Gemini o cualquier API compatible con OpenAI. Ordena prioridades; si uno falla o se queda sin cuota, EDI usa el siguiente. Verás peticiones y tokens del día.

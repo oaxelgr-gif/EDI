@@ -138,23 +138,27 @@ RULES = [
     ("settings_mail", r"\b(agrega|agregar|registra|registrar|conecta|conectar|configura|configurar|anade|anadir|nueva|nuevo|otra|otro)\b.*\b(cuenta|correo|email|mail)\b"),
     ("settings_ai", r"\b(agrega|registra|configura|cambia|conecta)\w*\b.*\b(api ?key|llave|proveedor|modelo|omniroute|groq|openrouter|gemini)\b"),
     ("mail", r"\b(correos?|emails?|mails?|bandeja|inbox|mensajes nuevos)\b"),
+    ("weather", r"\b(clima|temperatura|grados|pronostico|va a llover|llovera|hace (frio|calor))\b"),
+    ("exchange", r"\b(precio|cotizacion|tipo de cambio|cuanto (esta|vale|cuesta)|a como esta)\b.*\b(dolar|dolares|euro|euros|libra|yen|yuan|bitcoin|peso colombiano|peso argentino|real)\b|\btipo de cambio\b"),
     ("complete", r"^(ya (hice|termine|acabe|complete)|completa(r)?|marca(r)? (como )?(hecha|lista|completada)|"
                  r"tacha(r)?|termine)\b"),
     ("delete_task", r"^(borra|elimina|quita|cancela)(r)? (la )?(tarea|recordatorio|pendiente)"),
     ("delete_note", r"^(borra|elimina|olvida)(r)? (la )?nota"),
     ("list_tasks", r"^(mis tareas|que tengo que hacer|lista de tareas|tareas|ver tareas|recordatorios)\b"),
-    ("add_task", r"^(recuerdame|recordarme|recordar(me)? que|avisame|agrega(r)? (una )?(tarea|pendiente)|"
+    ("add_task", r"^((ok(ay)?|oye|bueno|y)\s*,?\s*)?((quiero|necesito) que )?(me recuerdes|recuerdame|no me dejes olvidar)|^(recuerdame|recordarme|recordar(me)? que|avisame|agrega(r)? (una )?(tarea|pendiente)|"
                  r"anota (una )?tarea|tengo que|nueva tarea|pon(me)? (un )?recordatorio)"),
     ("add_note", r"^(recuerda que|anota que|guarda que|no olvides que|apunta que|memoriza que|toma nota)"),
     ("recall", r"^(que te dije|que recuerdas|que sabes|que anote|que guarde|busca en (tu memoria|mis notas))"),
     ("list_notes", r"^(mis notas|que (cosas )?recuerdas$|que tienes guardado)"),
+    ("search", r"^(busca(me|r)?|investiga(me)?|googlea|consulta|averigua|dime que dice internet)\b|\b(en (la )?(web|internet|google))\b|^(cual es el precio|cuanto cuesta|cuanto vale|quien gano|que paso (con|en)|noticias|ultimas noticias|resultado del)\b"),
     ("greet", r"^(hola|que tal|como estas|hey)\b"),
 ]
 
 STRIP = {
-    "add_task": r"^(tengo que\s+|recuerdame|recordarme|recordar(me)? que|avisame|agrega(r)? (una )?(tarea|pendiente)|anota (una )?tarea|"
+    "add_task": r"^((ok(ay)?|oye|bueno|y)\s*,?\s*)?((quiero|necesito) que )?(me recuerdes|no me dejes olvidar)\s*(que|de|para)?\s*(el dia de )?|^(tengo que\s+|recuerdame|recordarme|recordar(me)? que|avisame|agrega(r)? (una )?(tarea|pendiente)|anota (una )?tarea|"
                 r"nueva tarea|pon(me)? (un )?recordatorio)\s*(que|de|para|:)?\s*",
     "add_note": r"^(recuerda que|anota que|guarda que|no olvides que|apunta que|memoriza que|toma nota( de)?( que)?)\s*:?\s*",
+    "search": r"^(busca(me|r)?|investiga(me)?|googlea|consulta|averigua|dime que dice internet)\s*(en (la )?(web|internet|google))?\s*(sobre|de|el|la|los|las|que|cual|cuanto)?\s*",
     "recall": r"^(que te dije|que recuerdas|que sabes|que anote|que guarde|busca en (tu memoria|mis notas))\s*(de|del|sobre|acerca de|con)?\s*",
     "complete": r"^(ya (hice|termine|acabe|complete)|completa(r)?|marca(r)? (como )?(hecha|lista|completada)|tacha(r)?|termine)\s*(la )?(tarea)?\s*(de |del |el |la )?",
 }
@@ -177,6 +181,7 @@ def detect(text: str, now: datetime) -> Intent:
             if name in ("add_task",):
                 intent.when, intent.text = parse_when(intent.text, now)
                 intent.text = re.sub(r"^(que|de|para)\s+", "", intent.text, flags=re.I)
+                intent.text = re.sub(r"^tengo que\s+", "", intent.text, flags=re.I)
             if name in ("complete", "delete_task", "delete_note"):
                 n = re.search(r"\b(\d+)\b", f_clean)
                 intent.ref = int(n.group(1)) if n else None

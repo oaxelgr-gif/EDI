@@ -8,9 +8,9 @@ import { mountOrb } from "../voice/orb.js";
 import { hasPending, onSpeakState, playPending, speak, speakLevel, speakState, stop as stopSpeaking } from "../voice/speaker.js";
 
 const STATE_LABEL = { idle: "", speaking: "hablando", loading: "preparando voz", listening: "te escucho", wake: "di “EDI” y tu orden", armed: "¿sí?", blocked: "" };
-const SUGGESTIONS = ["Dame mi resumen", "¿Tengo correos?", "Mis tareas", "¿Qué recuerdas?"];
+const SUGGESTIONS = ["Dame mi resumen", "¿Tengo correos?", "Precio del dólar", "¿Cómo está el clima?", "Mis tareas"];
 
-let root, cleanup = [], listenState = "idle", ctx = {}, queued = null;
+let root, cleanup = [], listenState = "idle", ctx = {}, queued = null, renderId = 0;
 
 const orbState = () => {
   const s = speakState();
@@ -20,6 +20,7 @@ const orbState = () => {
 export async function render(container, params, app) {
   ctx = app;
   root = container;
+  const myRender = ++renderId;   // evita saludos duplicados si se navega dos veces rápido
   cleanup.forEach((fn) => fn()); cleanup = [];
   root.innerHTML = html`
     <section class="chat">
@@ -30,8 +31,8 @@ export async function render(container, params, app) {
       <div class="chat-scroll"><ol class="transcript" id="transcript"></ol></div>
       <div class="composer-wrap">
         <form class="composer" id="composer">
-          <button type="button" class="mic" id="mic" aria-label="Dictar">${raw(icon("mic"))}</button>
-          <div class="prompt">
+          <button type="button" class="mic glass" id="mic" aria-label="Dictar">${raw(icon("mic"))}</button>
+          <div class="prompt glass">
             <textarea id="input" rows="1" placeholder="Escribe o dicta a EDI" aria-label="Mensaje para EDI"></textarea>
             <button type="submit" class="send" id="send" aria-label="Enviar" disabled>${raw(icon("send"))}</button>
           </div>
@@ -39,7 +40,7 @@ export async function render(container, params, app) {
         <div class="suggestions" id="suggestions">${SUGGESTIONS.map((s) => raw(`<button type="button">${esc(s)}</button>`))}</div>
         <label class="wake ${store.wake ? "on" : ""}" id="wakeLabel" ${listener.canListen ? "" : "hidden"}>
           <span class="switch"><input type="checkbox" id="wake" ${store.wake ? "checked" : ""}></span>
-          Escucha continua: responde cuando digas “EDI”
+          Escucha continua en esta ventana (para todo el sistema usa EDI Helper)
         </label>
       </div>
     </section>`;
@@ -73,7 +74,7 @@ export async function render(container, params, app) {
   const sid = params.id ? Number(params.id) : null;
   store.set({ sessionId: sid });
   if (sid) await loadSession(sid);
-  else if (!queued) await greet();
+  else if (!queued) await greet(myRender);
   else $("#transcript", root).innerHTML = "";
   if (queued) { const q = queued; queued = null; ask(q); }
   if (!matchMedia("(max-width: 640px)").matches) input.focus();
@@ -95,7 +96,7 @@ function toggleMic() {
   else listener.start("once");
 }
 
-function addLine(role, text, { meta = "", alert = false, speakNow = false } = {}) {
+function addLine(role, text, { meta = "", alert = false, speakNow = false, sources = null } = {}) {
   const list = $("#transcript", root);
   if (!list) return null;
   list.querySelector(".empty-hello")?.remove();
@@ -108,6 +109,12 @@ function addLine(role, text, { meta = "", alert = false, speakNow = false } = {}
         </div></li>`
     : html`<li class="line user"><p>${text}</p></li>`);
   li.querySelector("[data-repeat]")?.addEventListener("click", () => speak(text));
+  if (sources?.length) {
+    li.append(el(`<div class="sources">${sources.slice(0, 4).map((s) => {
+      let host = ""; try { host = new URL(s.url).hostname.replace(/^www\./, ""); } catch {}
+      return `<a href="${esc(s.url)}" target="_blank" rel="noopener" title="${esc(s.title)}">${esc(host || s.title)}</a>`;
+    }).join("")}</div>`));
+  }
   list.append(li);
   li.scrollIntoView({ block: "end", behavior: "smooth" });
   if (role === "edi") { store.lastReply = text; if (speakNow) speakWithFallbackHint(li, text); }
@@ -131,11 +138,12 @@ function typing() {
   return li;
 }
 
-async function greet() {
+async function greet(token = renderId) {
   const list = $("#transcript", root);
   list.innerHTML = `<li class="empty-hello"><h1>Hola, ${esc(store.settings.user_name || "jefe")}.</h1><p>Habla con el micrófono, escribe abajo o toca el anillo.</p></li>`;
   try {
     const r = await api.greeting();
+    if (token !== renderId) return;
     addLine("edi", r.reply, { speakNow: true });
     if (r.data?.mail) ctx.setMailCount?.(r.data.mail.total);
   } catch { /* sin conexión: queda el saludo estático */ }
@@ -177,7 +185,7 @@ export async function ask(text) {
       history.replaceState(null, "", `#/chat/${r.session_id}`);
     }
     if (r.repeat) { speak(r.reply); return; }
-    addLine("edi", r.reply, { meta: r.provider, speakNow: true });
+    addLine("edi", r.reply, { meta: r.provider, speakNow: true, sources: r.data?.sources });
     ctx.refreshSidebar?.();
     if (r.data?.mail) ctx.setMailCount?.(r.data.mail.total);
     if (r.data?.tasks) ctx.setTaskCount?.(r.data.tasks.length);

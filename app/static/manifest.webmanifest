@@ -1,0 +1,11 @@
+{
+  "name": "EDI",
+  "short_name": "EDI",
+  "description": "Tu asistente personal por voz y texto",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0713",
+  "theme_color": "#0a0713",
+  "lang": "es-MX",
+  "icons": [{ "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

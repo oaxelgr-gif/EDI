@@ -32,7 +32,7 @@ async function load(force) {
       return;
     }
     body.innerHTML = m.accounts.map((a) => html`
-      <div class="acc-block">
+      <div class="acc-block card glass">
         <div class="acc-head"><h2>${a.name}</h2><span class="n">${a.error ? "" : a.unread_total + " sin leer"}</span><span class="muted">${a.user}</span></div>
         ${a.error ? raw(html`<div class="acc-error">No pude entrar: ${a.error}</div>`) : ""}
         ${a.items.length ? raw(html`<ul class="items">${a.items.map((i) => raw(html`

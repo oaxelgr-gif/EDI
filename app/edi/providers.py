@@ -16,7 +16,7 @@ KINDS = {
     "omniroute":  {"label": "OmniRoute (tu pivote local)", "base_url": "http://host.docker.internal:20128/v1",
                    "model": "auto/best-free", "key_url": "http://localhost:20128"},
     "groq":       {"label": "Groq", "base_url": "https://api.groq.com/openai/v1",
-                   "model": "llama-3.1-8b-instant", "key_url": "https://console.groq.com/keys"},
+                   "model": "llama-3.3-70b-versatile", "key_url": "https://console.groq.com/keys"},
     "openrouter": {"label": "OpenRouter", "base_url": "https://openrouter.ai/api/v1",
                    "model": "meta-llama/llama-3.3-70b-instruct:free", "key_url": "https://openrouter.ai/keys"},
     "gemini":     {"label": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -105,12 +105,47 @@ def call(p: dict, messages: list, max_tokens: int, temperature: float, timeout: 
     if p.get("api_key"):
         headers["Authorization"] = f"Bearer {p['api_key']}"
     r = httpx.post(f"{p['base_url']}/chat/completions", headers=headers, timeout=timeout,
-                   json={"model": p["model"], "messages": messages, "max_tokens": max_tokens, "temperature": temperature})
+                   json={"model": p["model"], "messages": messages, "max_tokens": max(max_tokens, 64), "temperature": temperature})
     if r.status_code >= 400:
         raise RuntimeError(f"HTTP {r.status_code}: {r.text[:160]}")
     j = r.json()
     text = (j["choices"][0]["message"].get("content") or "").strip()
     return text, int((j.get("usage") or {}).get("total_tokens") or 0)
+
+
+# Modelos preferidos si el configurado desaparece (los proveedores retiran modelos seguido)
+PREFERRED = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "moonshotai/kimi-k2",
+             "meta-llama/llama-4-maverick", "meta-llama/llama-4-scout", "qwen/qwen3-32b", "gemini-2.5-flash",
+             "gemini-2.0-flash", "auto/best-free"]
+SKIP = ("whisper", "guard", "tts", "embed", "playai", "orpheus", "distil", "vision", "compound", "prompt")
+
+
+def pick_model(p: dict) -> str | None:
+    models = list_models(p)
+    if not models:
+        return None
+    for pref in PREFERRED:
+        hit = next((m for m in models if m == pref or m.startswith(pref)), None)
+        if hit:
+            return hit
+    usable = [m for m in models if not any(x in m.lower() for x in SKIP)]
+    return (usable or models)[0]
+
+
+def call_healing(p: dict, messages: list, max_tokens: int, temperature: float, timeout: float = 25):
+    """Llama al proveedor; si el modelo ya no existe, elige otro disponible, lo guarda y reintenta."""
+    try:
+        return call(p, messages, max_tokens, temperature, timeout)
+    except RuntimeError as e:
+        msg = str(e)
+        if "model" in msg.lower() and any(k in msg for k in ("404", "model_not_found", "does not exist", "decommissioned", "not found")):
+            new = pick_model(p)
+            if new and new != p["model"]:
+                log.warning("Modelo %s no disponible en %s; cambio a %s", p["model"], p["name"], new)
+                update(p["id"], {"model": new}) if p.get("id") else None
+                p = {**p, "model": new}
+                return call(p, messages, max_tokens, temperature, timeout)
+        raise
 
 
 def active():
@@ -129,7 +164,7 @@ def chat(user_text: str, context: str = "", history=None, max_tokens: int | None
     for p in active():
         t0 = time.time()
         try:
-            text, tokens = call(p, messages, max_tokens or int(s["llm_max_tokens"]), float(s["llm_temperature"]))
+            text, tokens = call_healing(p, messages, max_tokens or int(s["llm_max_tokens"]), float(s["llm_temperature"]))
             if not text:
                 raise RuntimeError("respuesta vacía")
             _record(p["id"], tokens)
@@ -144,8 +179,11 @@ def chat(user_text: str, context: str = "", history=None, max_tokens: int | None
 def test(p: dict) -> dict:
     t0 = time.time()
     try:
-        text, tokens = call(p, [{"role": "user", "content": "Responde sólo: Sistemas en línea."}], 20, 0, timeout=20)
-        return {"ok": True, "reply": text, "ms": int((time.time() - t0) * 1000), "tokens": tokens}
+        before = p.get("model")
+        text, tokens = call_healing(p, [{"role": "user", "content": "Responde sólo: Sistemas en línea."}], 20, 0, timeout=20)
+        fresh = get(p["id"]) if p.get("id") else None
+        note = f" (cambié el modelo a {fresh['model']})" if fresh and fresh["model"] != before else ""
+        return {"ok": True, "reply": text + note, "ms": int((time.time() - t0) * 1000), "tokens": tokens}
     except Exception as e:
         return {"ok": False, "error": str(e)[:240], "ms": int((time.time() - t0) * 1000)}
 

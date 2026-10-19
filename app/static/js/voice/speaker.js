@@ -33,7 +33,7 @@ export async function speak(text) {
   if (useServer) {
     try {
       setState("loading");
-      const blob = await api.tts(text, s.tts_voice, s.tts_rate);
+      const blob = await api.tts(text, s.tts_voice, s.tts_rate, s.tts_pitch);
       return await playBlob(blob, text);
     } catch (e) {
       if (e && e.name === "NotAllowedError") return;

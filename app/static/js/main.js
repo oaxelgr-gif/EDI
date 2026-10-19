@@ -8,9 +8,10 @@ import * as mail from "./views/mail.js";
 import * as memory from "./views/memory.js";
 import * as settings from "./views/settings.js";
 import * as tasks from "./views/tasks.js";
+import * as guide from "./views/guide.js";
 
-const VIEWS = { chat, tasks, memory, mail, settings };
-const TITLES = { tasks: "Pendientes", memory: "Memoria", mail: "Correo", settings: "Ajustes" };
+const VIEWS = { chat, tasks, memory, mail, settings, guide };
+const TITLES = { tasks: "Pendientes", memory: "Memoria", mail: "Correo", settings: "Ajustes", guide: "Guía de uso" };
 const shell = $("#shell"), view = $("#view");
 const wide = matchMedia("(min-width: 1101px)");
 let currentView = null;
@@ -67,6 +68,22 @@ async function loadSessions() {
 }
 function markSession(id) { $$("#sessionList a").forEach((a) => a.classList.toggle("active", Number(a.dataset.sid) === id)); }
 
+/* ---------- tema: auto (sistema) → oscuro → claro ---------- */
+const THEMES = ["auto", "dark", "light"];
+const THEME_ICON = { auto: "auto", dark: "moon", light: "sun" };
+const THEME_LABEL = { auto: "Tema: automático", dark: "Tema: oscuro", light: "Tema: claro" };
+function applyTheme(t) {
+  if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  const b = $("#themeBtn");
+  b.innerHTML = icon(THEME_ICON[t]); b.title = THEME_LABEL[t]; b.setAttribute("aria-label", THEME_LABEL[t]);
+  const dark = t === "dark" || (t === "auto" && !matchMedia("(prefers-color-scheme: light)").matches);
+  document.querySelector('meta[name="theme-color"]').content = dark ? "#0a0713" : "#f3effb";
+}
+$("#themeBtn").addEventListener("click", () => {
+  const next = THEMES[(THEMES.indexOf(store.theme) + 1) % THEMES.length];
+  store.set({ theme: next }); applyTheme(next);
+});
+
 /* ---------- estado del servidor ---------- */
 async function health() {
   const st = $("#status");
@@ -101,7 +118,7 @@ document.addEventListener("click", async (e) => {
     const act = a.dataset.action;
     if (act === "toggle-drawer") toggleDrawer();
     if (act === "close-drawer") setDrawer(false);
-    if (act === "new-chat") { store.set({ sessionId: null }); location.hash = "#/chat"; if (parseHash().name === "chat") route(); }
+    if (act === "new-chat") { store.set({ sessionId: null }); if (location.hash === "#/chat") route(); else location.hash = "#/chat"; }
   }
   const del = e.target.closest("[data-del]");
   if (del && del.closest("#sessionList")) {
@@ -123,6 +140,9 @@ window.addEventListener("hashchange", route);
   $("[data-action=new-chat]").innerHTML = `${icon("plus")}Nueva conversación`;
   $(".drawer-close").innerHTML = icon("x");
   hydrateIcons();
+  applyTheme(store.theme);
+  api.devices().then((d) => { if (d.lan_url && !d.remote) { $("#lanLink").textContent = d.lan_url.replace("https://", ""); $("#lanLink").title = "Ábrelo en tu celular (Ajustes → Dispositivos)"; } }).catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("/sw.js").catch(() => {});
   if (wide.matches && !store.drawerOpen) shell.classList.add("drawer-closed");
   try { store.set({ settings: await api.settings() }); } catch {}
   await health();

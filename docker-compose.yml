@@ -10,11 +10,13 @@ services:
     environment:
       - EDI_DATA_DIR=/data
       - EDI_CONFIG_DIR=/config
+      - EDI_LAN_HOST=${EDI_LAN_HOST:-}
     volumes:
-      - ./data:/data              # memoria, tareas, tokens (persisten al apagar)
-      - ./config:/config:ro       # cuentas de correo
+      - ./data:/data              # memoria, tareas, certificados (persisten al apagar)
+      - ./config:/config:ro
     ports:
-      - "127.0.0.1:8765:8000"     # sólo accesible desde tu Mac
-    restart: "no"                 # se enciende con el acceso directo, no al arrancar la Mac
+      - "127.0.0.1:8765:8000"     # tu Mac: http://localhost:8765
+      - "8766:8443"               # tu red: https://IP-de-tu-Mac:8766 (pide PIN)
+    restart: "no"
     mem_limit: 512m
     cpus: 1.0

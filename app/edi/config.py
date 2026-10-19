@@ -29,16 +29,19 @@ DEFAULT_SETTINGS = {
     "llm_temperature": "0.4",
     "mail_max_per_account": _env("MAIL_MAX_PER_ACCOUNT", "15"),
     "mail_check_minutes": _env("MAIL_CHECK_MINUTES", "15"),
+    "home_city": _env("EDI_CITY", "Querétaro"),
+    "theme": "auto",
+    "tts_pitch": "+2Hz",
     "tts_engine": "edge",                # edge (voz neural en línea) | browser
     "tts_voice": "es-MX-DaliaNeural",
-    "tts_rate": "+0%",
+    "tts_rate": "+6%",
 }
 
 # Proveedores que se crean solos la primera vez si hay llave en .env
 ENV_PROVIDERS = [
     {"name": "OmniRoute", "kind": "omniroute", "base_url": _env("OMNIROUTE_URL", "http://host.docker.internal:20128/v1"),
      "api_key": _env("OMNIROUTE_API_KEY"), "model": _env("OMNIROUTE_MODEL", "auto/best-free")},
-    {"name": "Groq", "kind": "groq", "api_key": _env("GROQ_API_KEY"), "model": _env("GROQ_MODEL", "llama-3.1-8b-instant")},
+    {"name": "Groq", "kind": "groq", "api_key": _env("GROQ_API_KEY"), "model": _env("GROQ_MODEL", "llama-3.3-70b-versatile")},
     {"name": "OpenRouter", "kind": "openrouter", "api_key": _env("OPENROUTER_API_KEY"),
      "model": _env("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")},
     {"name": "Gemini", "kind": "gemini", "api_key": _env("GEMINI_API_KEY"), "model": _env("GEMINI_MODEL", "gemini-2.5-flash")},

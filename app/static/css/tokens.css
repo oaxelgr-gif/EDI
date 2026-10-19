@@ -1,37 +1,78 @@
-/* EDI · tokens de diseño
-   Consola nocturna de la Normandy: tinta violeta, ámbar de omni-tool para la voz de EDI,
-   verde agua cuando escucha. */
+/* EDI · tokens. Liquid glass con morado neón.
+   Tema: data-theme="dark" | "light" en <html>; sin atributo sigue al sistema. */
 :root {
-  --ink: #16141f;          /* fondo */
-  --ink-2: #1c1a28;        /* superficies elevadas (menú, formularios) */
-  --ink-3: #252233;        /* campos, hover */
-  --rule: #322e44;         /* líneas */
-  --text: #ece8f4;
-  --text-2: #b4adc6;
-  --dim: #8a83a0;
-  --signal: #f2b661;       /* EDI habla / acento principal */
-  --signal-ink: #2a1d08;   /* texto sobre ámbar */
-  --listen: #8fd3c7;       /* EDI escucha */
-  --alert: #f07a6a;
-  --ok: #9ad48a;
-
-  --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
-  --sans: "Onest", -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
-
-  /* escala tipográfica (razón 1.2) */
-  --fs-xs: .75rem;
-  --fs-sm: .875rem;
-  --fs-md: 1rem;
-  --fs-lg: 1.2rem;
-  --fs-xl: 1.44rem;
-  --fs-2xl: 1.73rem;
-  --fs-3xl: 2.07rem;
-
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-pill: 999px;
-
-  --col: 760px;            /* ancho de la columna central */
-  --drawer: 296px;
+  --font: "Onest", -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --fs-xs: .75rem; --fs-sm: .875rem; --fs-md: 1rem; --fs-lg: 1.2rem; --fs-xl: 1.44rem; --fs-2xl: 1.73rem; --fs-3xl: 2.2rem;
+  --r-sm: 10px; --r-md: 14px; --r-lg: 22px; --r-pill: 999px;
+  --col: 760px; --drawer: 288px;
   --ease: cubic-bezier(.2, .7, .2, 1);
+  --blur: saturate(170%) blur(22px);
+}
+
+/* ---------- oscuro (por defecto) ---------- */
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a0713;
+  --blob-1: rgba(139, 61, 255, .38);
+  --blob-2: rgba(232, 121, 249, .22);
+  --blob-3: rgba(76, 201, 240, .10);
+  --glass: rgba(255, 255, 255, .055);
+  --glass-2: rgba(255, 255, 255, .09);
+  --glass-3: rgba(255, 255, 255, .14);
+  --glass-line: rgba(255, 255, 255, .12);
+  --glass-hi: rgba(255, 255, 255, .22);
+  --shadow: 0 10px 40px rgba(0, 0, 0, .45);
+  --field: rgba(0, 0, 0, .28);
+  --text: #f4efff;
+  --text-2: #c9bfe6;
+  --dim: #8e85ab;
+  --accent: #b266ff;
+  --accent-2: #e879f9;
+  --accent-rgb: 178, 102, 255;
+  --on-accent: #ffffff;
+  --listen: #7dd3fc;
+  --listen-rgb: 125, 211, 252;
+  --glow: 0 0 24px rgba(178, 102, 255, .55);
+  --ok: #86efac;
+  --alert: #fb7185;
+}
+
+/* ---------- claro ---------- */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3effb;
+  --blob-1: rgba(167, 139, 250, .45);
+  --blob-2: rgba(240, 171, 252, .40);
+  --blob-3: rgba(125, 211, 252, .25);
+  --glass: rgba(255, 255, 255, .50);
+  --glass-2: rgba(255, 255, 255, .66);
+  --glass-3: rgba(255, 255, 255, .85);
+  --glass-line: rgba(255, 255, 255, .85);
+  --glass-hi: rgba(255, 255, 255, .95);
+  --shadow: 0 10px 34px rgba(76, 29, 149, .12);
+  --field: rgba(255, 255, 255, .7);
+  --text: #1d1430;
+  --text-2: #4a3d66;
+  --dim: #7b6f96;
+  --accent: #8b3dff;
+  --accent-2: #c026d3;
+  --accent-rgb: 139, 61, 255;
+  --on-accent: #ffffff;
+  --listen: #0284c7;
+  --listen-rgb: 2, 132, 199;
+  --glow: 0 0 20px rgba(139, 61, 255, .35);
+  --ok: #15803d;
+  --alert: #e11d48;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f3effb; --blob-1: rgba(167, 139, 250, .45); --blob-2: rgba(240, 171, 252, .40); --blob-3: rgba(125, 211, 252, .25);
+    --glass: rgba(255, 255, 255, .50); --glass-2: rgba(255, 255, 255, .66); --glass-3: rgba(255, 255, 255, .85);
+    --glass-line: rgba(255, 255, 255, .85); --glass-hi: rgba(255, 255, 255, .95); --shadow: 0 10px 34px rgba(76, 29, 149, .12);
+    --field: rgba(255, 255, 255, .7); --text: #1d1430; --text-2: #4a3d66; --dim: #7b6f96;
+    --accent: #8b3dff; --accent-2: #c026d3; --accent-rgb: 139, 61, 255; --listen: #0284c7; --listen-rgb: 2, 132, 199;
+    --glow: 0 0 20px rgba(139, 61, 255, .35); --ok: #15803d; --alert: #e11d48;
+  }
 }

@@ -13,11 +13,11 @@ export async function render(container) {
         <h1>Memoria</h1>
         <p>Todo lo que le dices a EDI con “recuerda que…”. Pregúntale después “¿qué te dije de…?”.</p>
       </div></header>
-      <form class="add-bar" id="addNote">
+      <form class="add-bar glass" id="addNote">
         <input class="input" name="text" placeholder="Algo que EDI debe recordar" aria-label="Nueva nota" autocomplete="off" required>
         <button class="btn btn-primary">Guardar</button>
       </form>
-      <input class="input" id="search" type="search" placeholder="Buscar en la memoria" aria-label="Buscar" style="margin-bottom:14px">
+      <input class="input glass" id="search" type="search" placeholder="Buscar en la memoria" aria-label="Buscar" style="margin-bottom:14px">
       <div id="noteList"></div>
     </section>`;
   $("#addNote", root).addEventListener("submit", async (e) => {
@@ -35,8 +35,8 @@ export async function render(container) {
 async function load(q = "") {
   const notes = await api.notes(q.trim());
   $("#noteList", root).innerHTML = notes.length
-    ? html`<ul class="items">${notes.map((n) => raw(html`
+    ? html`<div class="card glass"><ul class="items">${notes.map((n) => raw(html`
         <li class="item"><div class="item-body"><div class="item-title">${n.text}</div><div class="item-sub">${relTime(n.created)}</div></div>
-        <div class="item-actions"><button class="icon-btn" data-del="${n.id}" aria-label="Olvidar">${raw(icon("trash"))}</button></div></li>`))}</ul>`
+        <div class="item-actions"><button class="icon-btn" data-del="${n.id}" aria-label="Olvidar">${raw(icon("trash"))}</button></div></li>`))}</ul></div>`
     : `<div class="empty">${q ? "Nada coincide con esa búsqueda." : "Aún no hay nada guardado. Escribe arriba o dile a EDI “recuerda que…”."}</div>`;
 }

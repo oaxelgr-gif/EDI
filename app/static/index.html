@@ -2,13 +2,21 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0713">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>EDI</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%2316141F'/><circle cx='32' cy='32' r='17' fill='none' stroke='%23F2B661' stroke-width='4' stroke-dasharray='3 3'/><circle cx='32' cy='32' r='6' fill='%23F2B661'/></svg>">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <script>
+    // Aplica el tema guardado antes de pintar (evita el parpadeo)
+    try { const t = localStorage.getItem("edi.theme"); if (t && t !== '"auto"') document.documentElement.dataset.theme = JSON.parse(t); } catch {}
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/shell.css">
@@ -17,7 +25,7 @@
 </head>
 <body>
   <div class="shell" id="shell">
-    <aside class="drawer" id="drawer" aria-label="Menú">
+    <aside class="drawer glass" id="drawer" aria-label="Menú">
       <div class="drawer-head">
         <span class="mark" aria-hidden="true"></span>
         <span class="wordmark">EDI</span>
@@ -29,9 +37,11 @@
         <a href="#/memory" data-nav="memory"><span data-icon="brain"></span>Memoria</a>
         <a href="#/mail" data-nav="mail"><span data-icon="mail"></span>Correo<span class="count" id="countMail"></span></a>
         <a href="#/settings" data-nav="settings"><span data-icon="gear"></span>Ajustes</a>
+        <a href="#/guide" data-nav="guide"><span data-icon="help"></span>Guía de uso</a>
       </nav>
       <div class="drawer-section-title">Conversaciones</div>
       <ul class="session-list" id="sessionList"></ul>
+      <div class="drawer-foot"><span data-icon="phone"></span><a class="lan" id="lanLink" href="#/settings/devices">Usar en otro dispositivo</a></div>
     </aside>
     <div class="scrim" data-action="close-drawer"></div>
 
@@ -39,7 +49,8 @@
       <header class="topbar">
         <button class="icon-btn" data-action="toggle-drawer" aria-label="Abrir menú" data-icon="menu"></button>
         <div class="topbar-title" id="topTitle">EDI</div>
-        <div class="status" id="status" title="Estado"><span class="status-dot"></span><span class="status-text">conectando</span></div>
+        <button class="icon-btn" id="themeBtn" aria-label="Cambiar tema" title="Tema"></button>
+        <div class="status glass" id="status" title="Estado"><span class="status-dot"></span><span class="status-text">conectando</span></div>
       </header>
       <main id="view" class="view" tabindex="-1"></main>
     </div>

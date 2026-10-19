@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.edi.helper</string>
+  <key>CFBundleName</key><string>EDI Helper</string>
+  <key>CFBundleDisplayName</key><string>EDI Helper</string>
+  <key>CFBundleExecutable</key><string>EDI Helper</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>EDI escucha cuando dices “Hey EDI” o pulsas ⌥Espacio.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>EDI convierte tu voz en texto para entender tus órdenes.</string>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+  <key>EDIDir</key><string>__EDI_DIR__</string>
+</dict>
+</plist>

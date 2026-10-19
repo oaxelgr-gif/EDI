@@ -7,3 +7,5 @@ PyYAML==6.0.2
 python-multipart==0.0.20
 tzdata==2024.2
 edge-tts>=6.1.12
+cryptography>=42
+segno>=1.6

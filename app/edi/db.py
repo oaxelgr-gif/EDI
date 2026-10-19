@@ -88,7 +88,7 @@ def get_setting(key: str) -> str:
 
 def all_settings() -> dict:
     s = dict(config.DEFAULT_SETTINGS)
-    s.update({r["key"]: r["value"] for r in rows("SELECT key, value FROM settings")})
+    s.update({r["key"]: r["value"] for r in rows("SELECT key, value FROM settings WHERE substr(key, 1, 1) != '_'")})
     return s
 
 

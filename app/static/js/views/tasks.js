@@ -13,7 +13,7 @@ export async function render(container, _params, ctx) {
         <h1>Pendientes</h1>
         <p>Escríbelos como se los dirías a EDI: “pagar la luz mañana a las 5”. La fecha se entiende sola y te aviso en voz alta.</p>
       </div></header>
-      <form class="add-bar" id="addTask">
+      <form class="add-bar glass" id="addTask">
         <input class="input" name="text" placeholder="Nuevo pendiente" aria-label="Nuevo pendiente" autocomplete="off" required>
         <button class="btn btn-primary">Agregar</button>
       </form>
@@ -45,9 +45,9 @@ async function load() {
       </div>
     </li>`;
   $("#taskList", root).innerHTML = open.length
-    ? html`<ul class="items">${open.map((t) => raw(row(t)))}</ul>`
+    ? html`<div class="card glass"><ul class="items">${open.map((t) => raw(row(t)))}</ul></div>`
     : `<div class="empty">No tienes pendientes. Agrega uno arriba o dile a EDI “recuérdame…”.</div>`;
-  if (done.length) $("#taskList", root).append(el(html`<div><div class="group-title">Hechos recientemente</div><ul class="items">${done.map((t) => raw(row(t)))}</ul></div>`));
+  if (done.length) $("#taskList", root).append(el(html`<div><div class="group-title">Hechos recientemente</div><div class="card glass"><ul class="items">${done.map((t) => raw(row(t)))}</ul></div></div>`));
 }
 
 async function onClick(e) {

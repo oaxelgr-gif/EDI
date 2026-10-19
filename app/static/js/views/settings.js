@@ -5,7 +5,7 @@ import { $, esc, html, icon, raw } from "../ui/dom.js";
 import { toast } from "../ui/toast.js";
 import { speak } from "../voice/speaker.js";
 
-const TABS = [["general", "General"], ["voice", "Voz"], ["ai", "Inteligencia"], ["mail", "Correos"]];
+const TABS = [["general", "General"], ["voice", "Voz"], ["ai", "Inteligencia"], ["mail", "Correos"], ["devices", "Dispositivos"]];
 let root, app, kinds = {}, presets = {};
 
 export async function render(container, params, ctx) {
@@ -14,7 +14,7 @@ export async function render(container, params, ctx) {
   root.innerHTML = html`
     <section class="page">
       <header class="page-head"><div><h1>Ajustes</h1></div></header>
-      <div class="tabs" role="tablist">${TABS.map(([k, label]) => raw(`<button role="tab" data-tab="${k}" aria-selected="${k === tab}">${label}</button>`))}</div>
+      <div class="tabs glass" role="tablist">${TABS.map(([k, label]) => raw(`<button role="tab" data-tab="${k}" aria-selected="${k === tab}">${label}</button>`))}</div>
       <div id="tabBody"></div>
     </section>`;
   $(".tabs", root).addEventListener("click", (e) => {
@@ -22,16 +22,19 @@ export async function render(container, params, ctx) {
     if (b) location.hash = `#/settings/${b.dataset.tab}`;
   });
   const body = $("#tabBody", root);
-  ({ general: renderGeneral, voice: renderVoice, ai: renderAI, mail: renderMail })[tab](body, params);
+  ({ general: renderGeneral, voice: renderVoice, ai: renderAI, mail: renderMail, devices: renderDevices })[tab](body, params);
 }
 
 /* ---------------- General ---------------- */
 async function renderGeneral(body) {
   const s = await api.settings();
   body.innerHTML = html`
-    <form class="section" id="genForm">
+    <form class="section panel glass" id="genForm">
       <h2>Tú y EDI</h2>
-      <label class="field"><span>¿Cómo te llama EDI?</span><input class="input" name="user_name" value="${s.user_name}" maxlength="30"></label>
+      <div class="grid-2">
+        <label class="field"><span>¿Cómo te llama EDI?</span><input class="input" name="user_name" value="${s.user_name}" maxlength="30"></label>
+        <label class="field"><span>Tu ciudad (para el clima)</span><input class="input" name="home_city" value="${s.home_city || ""}" placeholder="Querétaro"></label>
+      </div>
       <h2 style="margin-top:12px">Correo</h2>
       <div class="kv">
         <label for="mcm">Avisar de correo nuevo cada (minutos, 0 = nunca)</label><input class="input" id="mcm" name="mail_check_minutes" type="number" min="0" max="240" value="${s.mail_check_minutes}">
@@ -58,10 +61,11 @@ async function renderGeneral(body) {
 async function renderVoice(body) {
   const [s, voices] = await Promise.all([api.settings(), api.voices().catch(() => [])]);
   const rate = parseInt(s.tts_rate) || 0;
+  const pitch = parseInt(s.tts_pitch) || 0;
   body.innerHTML = html`
-    <form class="section" id="voiceForm">
+    <form class="section panel glass" id="voiceForm">
       <h2>Cómo suena EDI</h2>
-      <p>La voz neural se genera en línea y gratis; suena natural en cualquier Mac. Si no hay internet, EDI usa la voz del navegador.</p>
+      <p>Voz neural gratuita en línea. Para una voz más cálida prueba Dalia con tono +2 a +4 Hz, o las voces multilingües (Ava, Emma, Vivienne), que son muy expresivas.</p>
       <label class="field"><span>Motor de voz</span>
         <select class="input" name="tts_engine">
           <option value="edge" ${s.tts_engine === "edge" ? "selected" : ""}>Voz neural en línea (recomendada)</option>
@@ -70,15 +74,21 @@ async function renderVoice(body) {
       <label class="field"><span>Voz</span>
         <select class="input" name="tts_voice">${voices.map((v) => raw(`<option value="${esc(v.id)}" ${v.id === s.tts_voice ? "selected" : ""}>${esc(v.label)}</option>`))}</select></label>
       <label class="field"><span>Velocidad: <b id="rateOut">${rate > 0 ? "+" : ""}${rate}%</b></span>
-        <input type="range" name="rate" min="-25" max="40" step="5" value="${rate}"></label>
+        <input type="range" name="rate" min="-25" max="40" step="2" value="${rate}"></label>
+      <label class="field"><span>Tono: <b id="pitchOut">${pitch > 0 ? "+" : ""}${pitch} Hz</b></span>
+        <input type="range" name="pitch" min="-20" max="20" step="1" value="${pitch}"></label>
       <div class="panel-actions">
         <button type="button" class="btn" id="tryVoice">${raw(icon("volume"))}Probar</button>
         <button class="btn btn-primary">Guardar voz</button>
       </div>
     </form>`;
   const f = $("#voiceForm", body);
-  const values = () => { const r = Number(f.rate.value); return { tts_engine: f.tts_engine.value, tts_voice: f.tts_voice.value, tts_rate: `${r >= 0 ? "+" : ""}${r}%` }; };
+  const values = () => {
+    const r = Number(f.rate.value), p = Number(f.pitch.value);
+    return { tts_engine: f.tts_engine.value, tts_voice: f.tts_voice.value, tts_rate: `${r >= 0 ? "+" : ""}${r}%`, tts_pitch: `${p >= 0 ? "+" : ""}${p}Hz` };
+  };
   f.rate.addEventListener("input", () => ($("#rateOut", body).textContent = values().tts_rate));
+  f.pitch.addEventListener("input", () => ($("#pitchOut", body).textContent = values().tts_pitch.replace("Hz", " Hz")));
   $("#tryVoice", body).addEventListener("click", () => {
     store.set({ settings: { ...store.settings, ...values() } });
     speak(`Hola, ${store.settings.user_name || "jefe"}. Así sonaré a partir de ahora.`);
@@ -97,7 +107,7 @@ async function renderAI(body, params) {
     <div class="section">
       <h2>Proveedores de IA</h2>
       <p>EDI los usa en este orden. Si uno se queda sin cuota o falla, pasa al siguiente. Las tareas, notas y la hora no gastan tokens.</p>
-      <div id="provList"></div>
+      <div id="provList" class="card glass"></div>
       <div><button class="btn" id="addProv">${icon("plus")}Agregar proveedor</button></div>
       <div id="provForm"></div>
     </div>`;
@@ -163,7 +173,7 @@ async function loadProviders(body) {
 function providerForm(box, p = null) {
   const kind = p?.kind || "omniroute";
   box.innerHTML = html`
-    <form class="panel" id="pf">
+    <form class="panel glass" id="pf">
       <h2 style="font-size:var(--fs-lg)">${p ? `Editar ${p.name}` : "Nuevo proveedor"}</h2>
       <div class="grid-2">
         <label class="field"><span>Tipo</span>
@@ -235,7 +245,7 @@ async function renderMail(body, params) {
     <div class="section">
       <h2>Cuentas de correo</h2>
       <p>EDI revisa estas cuentas en modo sólo lectura. Usa una contraseña de aplicación, nunca tu contraseña normal.</p>
-      <div id="accList"></div>
+      <div id="accList" class="card glass"></div>
       <div><button class="btn" id="addAcc">${icon("plus")}Registrar correo</button></div>
       <div id="accForm"></div>
     </div>`;
@@ -281,7 +291,7 @@ async function loadAccounts(body) {
 function accountForm(box, a = null) {
   const prov = a?.provider || "gmail";
   box.innerHTML = html`
-    <form class="panel" id="af">
+    <form class="panel glass" id="af">
       <h2 style="font-size:var(--fs-lg)">${a ? `Editar ${a.name}` : "Registrar correo"}</h2>
       <label class="field"><span>Proveedor</span>
         <select class="input" name="provider">${Object.entries(presets).map(([k, v]) => raw(`<option value="${k}" ${k === prov ? "selected" : ""}>${esc(v.label)}</option>`))}</select></label>
@@ -336,6 +346,45 @@ function accountForm(box, a = null) {
   });
   f.scrollIntoView({ behavior: "smooth", block: "center" });
   (a ? f.password : f.user).focus();
+}
+
+/* ---------------- Dispositivos ---------------- */
+async function renderDevices(body) {
+  const d = await api.devices();
+  body.innerHTML = html`
+    <div class="section">
+      <h2>Usar EDI en otros dispositivos</h2>
+      <p>Celulares, tablets y otras computadoras conectadas a la misma red Wi‑Fi que esta Mac.</p>
+      ${d.lan_url ? raw(html`
+      <div class="panel glass device">
+        <div class="qr" id="qr" aria-label="Código QR">…</div>
+        <div style="display:grid;gap:10px">
+          <div class="muted">Escanea el código o abre:</div>
+          <div class="big-url">${d.lan_url}</div>
+          <div class="muted" style="margin-top:6px">PIN de acceso</div>
+          <div class="pin">${d.pin}</div>
+          <div class="row">${d.remote ? "" : raw(`<button class="btn" id="newPin">${icon("refresh")}Cambiar PIN</button>`)}
+            <button class="btn btn-quiet" id="copyUrl">Copiar dirección</button></div>
+        </div>
+      </div>`) : raw(`<div class="panel glass"><div class="hint">No encontré la IP de tu Mac en la red. Conéctate a Wi‑Fi y vuelve a abrir EDI.app.</div></div>`)}
+      <div class="panel glass">
+        <h2 style="font-size:var(--fs-lg)">Primera vez en cada dispositivo</h2>
+        <ul style="margin:0;padding-left:20px;color:var(--text-2);display:grid;gap:6px">
+          <li>El navegador dirá que la conexión “no es privada”: es tu propia Mac con un certificado local. Elige <b>Avanzado → Continuar</b> (en iPhone: <b>Mostrar detalles → visitar este sitio</b>).</li>
+          <li>Escribe el PIN y listo: el dispositivo queda recordado.</li>
+          <li>Para tenerlo como app: Safari → Compartir → <b>Agregar a pantalla de inicio</b>; Chrome → menú → <b>Instalar app</b>.</li>
+          <li>El micrófono funciona en Chrome (Android) y Safari (iPhone).</li>
+        </ul>
+      </div>
+    </div>`;
+  if (d.lan_url) {
+    $("#qr", body).innerHTML = `<img src="/api/devices/qr.svg?t=${Date.now()}" alt="Código QR para abrir EDI en el celular">`;
+    $("#copyUrl", body).onclick = async () => { try { await navigator.clipboard.writeText(d.lan_url); toast("Dirección copiada"); } catch { toast(d.lan_url); } };
+    $("#newPin", body)?.addEventListener("click", async () => {
+      if (!confirm("Los dispositivos conectados tendrán que escribir el PIN nuevo. ¿Cambiarlo?")) return;
+      await api.rotatePin(); renderDevices(body);
+    });
+  }
 }
 
 function refreshHealth() { app.refreshHealth?.(); }
