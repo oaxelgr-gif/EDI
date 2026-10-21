@@ -51,3 +51,18 @@
 | “Hey EDI” no responde | Menú ◎ → *Responder a “Hey EDI”* debe estar marcado; Ajustes del Sistema → Privacidad → Micrófono y Reconocimiento de voz → EDI Helper activado. |
 | El celular no abre EDI | Mismo Wi‑Fi; usa la dirección `https://…:8766` exacta de Ajustes → Dispositivos. |
 | EDI.app se queda en un paso | Pulsa *Ver registro* en el aviso, o revisa `data/edi-launcher.log`. |
+
+## Enviar y responder correos (v0.4)
+
+- Di o escribe: «Manda un correo a juan@gmail.com diciendo que mañana no voy» o «Responde el correo de CFE diciendo que ya pagué».
+- EDI muestra un **borrador** que puedes editar. Di «envíalo» (o toca **Enviar**) para mandarlo; «cancela» lo descarta. Caduca a los 15 minutos.
+- «Marca todos mis correos como leídos». En la sección **Correo** cada mensaje tiene Ver, Responder y Marcar leído, y arriba está **Redactar**.
+- Para enviar se usa la misma contraseña de aplicación de la cuenta (SMTP automático; puedes cambiarlo en Ajustes → Correos → Servidor y carpetas).
+
+## WhatsApp (v0.4)
+
+1. Abre la sección **WhatsApp** del menú. Verás un código QR.
+2. En tu celular: WhatsApp → **Dispositivos vinculados** → **Vincular un dispositivo** y escanéalo.
+3. Listo: verás tus chats con mensajes nuevos, podrás leerlos y responder.
+- Por voz: «¿Tengo mensajes de WhatsApp?», «Lee los mensajes de mamá», «Mándale un WhatsApp a mamá diciendo que llego tarde» → «envíalo».
+- Funciona con un puente no oficial (Baileys). Úsalo con moderación, sólo para tus chats. Puedes **Desvincular** cuando quieras.

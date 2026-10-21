@@ -1,11 +1,11 @@
 // Ajustes: General, Voz, Inteligencia (llaves y proveedores) y Correos (registro de cuentas).
 import { api } from "../api.js";
 import { store } from "../store.js";
-import { $, esc, html, icon, raw } from "../ui/dom.js";
+import { $, esc, html, icon, raw, relTime } from "../ui/dom.js";
 import { toast } from "../ui/toast.js";
 import { speak } from "../voice/speaker.js";
 
-const TABS = [["general", "General"], ["voice", "Voz"], ["ai", "Inteligencia"], ["mail", "Correos"], ["devices", "Dispositivos"]];
+const TABS = [["general", "General"], ["look", "Diseño"], ["voice", "Voz"], ["ai", "Inteligencia"], ["mail", "Correos"], ["connections", "Conexiones"], ["devices", "Dispositivos"]];
 let root, app, kinds = {}, presets = {};
 
 export async function render(container, params, ctx) {
@@ -22,7 +22,61 @@ export async function render(container, params, ctx) {
     if (b) location.hash = `#/settings/${b.dataset.tab}`;
   });
   const body = $("#tabBody", root);
-  ({ general: renderGeneral, voice: renderVoice, ai: renderAI, mail: renderMail, devices: renderDevices })[tab](body, params);
+  ({ general: renderGeneral, look: renderLook, voice: renderVoice, ai: renderAI, mail: renderMail, connections: renderConnections, devices: renderDevices })[tab](body, params);
+}
+
+/* ---------------- Diseño: colores, transparencia y tema ---------------- */
+function renderLook(body) {
+  const L = window.ediLook;
+  let look = L.get();
+  const pal = () => L.PALETTES.find((p) => p.id === look.palette) || L.PALETTES[0];
+  body.innerHTML = html`
+    <div class="panel glass">
+      <h2>Tema</h2>
+      <div class="seg" id="themeSeg">
+        ${raw([["auto", "Automático"], ["dark", "Oscuro"], ["light", "Claro"]].map(([k, l]) =>
+          `<button data-theme-opt="${k}" aria-pressed="${store.theme === k}">${l}</button>`).join(""))}
+      </div>
+    </div>
+    <div class="panel glass">
+      <h2>Paleta de colores</h2>
+      <p class="muted">Cambia el color de botones, anillo de voz, brillos y fondo en toda la app.</p>
+      <div class="swatches" id="swatches">
+        ${raw(L.PALETTES.map((p) => `<button class="swatch" data-pal="${p.id}" aria-pressed="${p.id === look.palette && !look.a}" title="${esc(p.name)}">
+          <span class="chip" style="background:linear-gradient(135deg, ${p.a}, ${p.b}${p.multi ? ", " + p.c : ""})"></span><span>${esc(p.name)}</span></button>`).join(""))}
+      </div>
+      <h3 style="margin-top:18px">Colores propios</h3>
+      <div class="grid-2 colors">
+        <label class="field"><span>Principal</span><input type="color" id="colA" value="${look.a || pal().a}"></label>
+        <label class="field"><span>Secundario (degradados)</span><input type="color" id="colB" value="${look.b || pal().b}"></label>
+      </div>
+    </div>
+    <div class="panel glass">
+      <h2>Vidrio</h2>
+      <label class="field"><span>Opacidad de los paneles · <b id="glassV">${look.glass}%</b></span>
+        <input type="range" id="glass" min="30" max="220" step="10" value="${look.glass}"></label>
+      <label class="field" style="margin-top:12px"><span>Desenfoque · <b id="blurV">${look.blur}px</b></span>
+        <input type="range" id="blur" min="0" max="40" step="2" value="${look.blur}"></label>
+      <div class="panel-actions" style="margin-top:14px"><span class="result muted">Se guarda en este dispositivo.</span>
+        <button class="btn btn-quiet" id="lookReset">Restablecer</button></div>
+    </div>`;
+  const save = () => { L.set(look); body.querySelectorAll(".swatch").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.pal === look.palette && !look.a))); };
+  $("#swatches", body).addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pal]"); if (!b) return;
+    look = { ...look, palette: b.dataset.pal, a: null, b: null, c: null };
+    $("#colA", body).value = pal().a; $("#colB", body).value = pal().b; save();
+  });
+  $("#colA", body).addEventListener("input", (e) => { look = { ...look, a: e.target.value, b: look.b || pal().b }; save(); });
+  $("#colB", body).addEventListener("input", (e) => { look = { ...look, b: e.target.value, a: look.a || pal().a }; save(); });
+  $("#glass", body).addEventListener("input", (e) => { look = { ...look, glass: +e.target.value }; $("#glassV", body).textContent = look.glass + "%"; save(); });
+  $("#blur", body).addEventListener("input", (e) => { look = { ...look, blur: +e.target.value }; $("#blurV", body).textContent = look.blur + "px"; save(); });
+  $("#lookReset", body).onclick = () => { look = { ...L.DEFAULT }; save(); renderLook(body); };
+  $("#themeSeg", body).addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-theme-opt]"); if (!b) return;
+    store.set({ theme: b.dataset.themeOpt });
+    (await import("../main.js")).applyTheme?.(b.dataset.themeOpt);
+    body.querySelectorAll("[data-theme-opt]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  });
 }
 
 /* ---------------- General ---------------- */
@@ -239,12 +293,144 @@ function providerForm(box, p = null) {
 }
 
 /* ---------------- Correos ---------------- */
+/* ---------------- Conexiones de trabajo (Jira, GitHub, Slack) ---------------- */
+let connKinds = {};
+const CONN_ICON = { jira: "list", github: "bolt", slack: "chat" };
+
+async function renderConnections(body, params) {
+  connKinds = await api.connectionKinds();
+  const s = await api.settings();
+  body.innerHTML = html`
+    <div class="section">
+      <h2>Conexiones de trabajo</h2>
+      <p>Lo que tienes asignado en Jira y GitHub (y lo que marques con ✅ en Slack) aparece en tus <b>pendientes de trabajo</b>, con recordatorios.
+        Crear, mover o comentar tickets y mandar mensajes por voz siempre te pide confirmación.</p>
+      <div id="connList" class="card glass"></div>
+      <div class="row conn-add">${raw(Object.entries(connKinds).map(([k, c]) => `<button class="btn" data-add="${k}">${icon("plus")}${esc(c.label)}</button>`).join(""))}</div>
+      <div id="connForm"></div>
+      <div class="panel glass">
+        <div class="grid-2">
+          <label class="field"><span>Sincronizar automáticamente</span>
+            <select class="input" id="syncMin">${raw([["0", "Sólo manual"], ["5", "Cada 5 minutos"], ["10", "Cada 10 minutos"], ["30", "Cada 30 minutos"], ["60", "Cada hora"]]
+              .map(([v, l]) => `<option value="${v}" ${String(s.sync_minutes) === v ? "selected" : ""}>${l}</option>`).join(""))}</select></label>
+          <div class="field"><span>&nbsp;</span><button class="btn" id="syncNow">${raw(icon("refresh"))}Sincronizar todo ahora</button></div>
+        </div>
+      </div>
+    </div>`;
+  body.querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => connectionForm($("#connForm", body), b.dataset.add, null, body)));
+  $("#syncMin", body).onchange = async (e) => { await api.saveSettings({ sync_minutes: e.target.value }); toast("Guardado"); };
+  $("#syncNow", body).onclick = async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    try { const r = await api.syncAll(); const bad = Object.values(r).find((x) => !x.ok); toast(bad ? bad.error : "Sincronizado", bad ? "error" : "info"); }
+    catch (err) { toast(err.message, "error"); }
+    b.disabled = false; loadConnections(body);
+  };
+  $("#connList", body).addEventListener("click", (e) => onConnClick(e, body));
+  $("#connList", body).addEventListener("change", (e) => onConnClick(e, body));
+  await loadConnections(body);
+  if (params.query?.new && connKinds[params.query.new]) connectionForm($("#connForm", body), params.query.new, null, body);
+}
+
+async function loadConnections(body) {
+  const list = await api.connections();
+  const box = $("#connList", body);
+  if (!list.length) { box.innerHTML = `<div class="empty">Aún no conectas nada. Empieza con Jira o GitHub.</div>`; return; }
+  box.innerHTML = list.map((c) => html`
+    <div class="prov conn ${c.enabled ? "" : "off"}" data-id="${c.id}">
+      <div>
+        <div class="prov-name"><span class="conn-ico ${c.kind}">${raw(icon(CONN_ICON[c.kind] || "globe"))}</span><strong>${c.name}</strong>
+          <span class="muted">${c.label}${c.me ? " · " + c.me : ""}</span></div>
+        <div class="prov-meta">
+          ${c.last_error ? raw(`<span class="result err">${esc(c.last_error)}</span>`) : c.last_sync ? raw(`<span class="result ok">Sincronizado ${esc(relTime(c.last_sync))}</span>`) : raw(`<span class="muted">Sin sincronizar</span>`)}
+          <span>${c.open_tasks} pendiente${c.open_tasks === 1 ? "" : "s"}</span><span class="test-out"></span>
+        </div>
+      </div>
+      <div class="prov-actions">
+        <button class="btn btn-quiet" data-act="sync" title="Sincronizar">${raw(icon("refresh"))}</button>
+        <button class="btn btn-quiet" data-act="test">Probar</button>
+        <button class="icon-btn" data-act="edit" aria-label="Editar">${raw(icon("edit"))}</button>
+        <button class="icon-btn" data-act="del" aria-label="Eliminar">${raw(icon("trash"))}</button>
+        <span class="switch"><input type="checkbox" data-act="toggle" ${c.enabled ? "checked" : ""} aria-label="Activar ${c.name}"></span>
+      </div>
+    </div>`).join("");
+  box._list = list;
+}
+
+async function onConnClick(e, body) {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  if (el.type === "checkbox" && e.type === "click") return;
+  const row = el.closest("[data-id]"), id = Number(row.dataset.id), out = row.querySelector(".test-out");
+  const c = ($("#connList", body)._list || []).find((x) => x.id === id);
+  try {
+    if (el.dataset.act === "toggle") { await api.patchConnection(id, { enabled: el.checked }); return loadConnections(body); }
+    if (el.dataset.act === "edit") return connectionForm($("#connForm", body), c.kind, c, body);
+    if (el.dataset.act === "del") {
+      if (!confirm(`¿Quitar la conexión ${c.name}? Tus pendientes abiertos se conservan.`)) return;
+      await api.deleteConnection(id); toast("Conexión eliminada"); return loadConnections(body);
+    }
+    out.className = "test-out muted"; out.textContent = el.dataset.act === "sync" ? "Sincronizando…" : "Probando…";
+    const r = el.dataset.act === "sync" ? await api.syncConnection(id) : await api.testSavedConnection(id);
+    out.className = `test-out result ${r.ok ? "ok" : "err"}`;
+    out.textContent = r.ok ? (r.message || `${r.added || 0} nuevos · ${r.updated || 0} actualizados · ${r.done || 0} cerrados`) : (r.error || r.message);
+    setTimeout(() => loadConnections(body), 2500);
+  } catch (err) { out.className = "test-out result err"; out.textContent = err.message; }
+}
+
+function connectionForm(box, kind, c, body) {
+  const k = connKinds[kind];
+  const val = (f) => (f.target === "config" ? (c?.config?.[f.key] ?? "") : f.target === "secret" ? "" : (c?.[f.target] ?? ""));
+  const field = (f) => {
+    const id = `cf_${f.key}`;
+    const help = f.help ? raw(`<small>${esc(f.help)}</small>`) : "";
+    if (f.type === "select") return html`<label class="field"><span>${f.label}</span><select class="input" id="${id}" name="${f.key}">
+      ${raw(f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(val(f) || f.options[0][0]) === v ? "selected" : ""}>${esc(l)}</option>`).join(""))}</select>${help}</label>`;
+    if (f.type === "textarea") return html`<label class="field"><span>${f.label}</span><textarea class="input" rows="2" id="${id}" name="${f.key}" placeholder="${f.placeholder || ""}">${val(f)}</textarea>${help}</label>`;
+    const ph = f.type === "password" && c?.has_secret ? "Guardado · escribe sólo para cambiarlo" : (f.placeholder || "");
+    return html`<label class="field"><span>${f.label}</span><input class="input" id="${id}" name="${f.key}" type="${f.type === "password" ? "password" : f.type === "url" ? "url" : "text"}"
+      value="${val(f)}" placeholder="${ph}" autocomplete="off" ${f.required && !(f.type === "password" && c?.has_secret) ? "required" : ""}>${help}</label>`;
+  };
+  box.innerHTML = html`
+    <form class="panel glass" id="cf">
+      <div class="sheet-head"><h2 style="font-size:var(--fs-lg)">${c ? "Editar" : "Conectar"} ${k.label}</h2>
+        <button type="button" class="icon-btn" id="cfClose" aria-label="Cerrar">${raw(icon("x"))}</button></div>
+      <p class="hint">${k.help} ${k.help_url ? raw(`<a href="${esc(k.help_url)}" target="_blank" rel="noopener">Obtener token</a>`) : ""}</p>
+      <label class="field"><span>Nombre</span><input class="input" name="name" value="${c?.name || k.label}" placeholder="${k.label} trabajo"></label>
+      ${raw(k.fields.map(field).join(""))}
+      <div class="panel-actions"><span class="result" id="cfOut"></span>
+        <button type="button" class="btn btn-quiet" id="cfTest">Probar</button>
+        <button class="btn btn-primary">${c ? "Guardar cambios" : "Conectar"}</button></div>
+    </form>`;
+  const f = $("#cf", box), out = $("#cfOut", box);
+  const data = () => ({ kind, ...(c ? { id: c.id } : {}), ...Object.fromEntries(new FormData(f)) });
+  $("#cfClose", box).onclick = () => (box.innerHTML = "");
+  $("#cfTest", box).onclick = async () => {
+    out.className = "result muted"; out.textContent = "Probando…";
+    try { const r = await api.testConnection(data()); out.className = `result ${r.ok ? "ok" : "err"}`; out.textContent = r.message; }
+    catch (err) { out.className = "result err"; out.textContent = err.message; }
+  };
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    out.className = "result muted"; out.textContent = c ? "Guardando…" : "Conectando y sincronizando…";
+    try {
+      if (c) { await api.patchConnection(c.id, data()); toast("Conexión actualizada"); box.innerHTML = ""; }
+      else {
+        const r = await api.addConnection(data());
+        if (!r.ok) { out.className = "result err"; out.textContent = r.message + " (se guardó; corrígela con Editar)"; loadConnections(body); return; }
+        toast(r.message); box.innerHTML = "";
+      }
+      loadConnections(body);
+    } catch (err) { out.className = "result err"; out.textContent = err.message; }
+  });
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 async function renderMail(body, params) {
   presets = await api.mailPresets();
   body.innerHTML = `
     <div class="section">
       <h2>Cuentas de correo</h2>
-      <p>EDI revisa estas cuentas en modo sólo lectura. Usa una contraseña de aplicación, nunca tu contraseña normal.</p>
+      <p>EDI lee estas cuentas y puede enviar o responder correos sólo cuando tú lo confirmas. Usa una contraseña de aplicación, nunca tu contraseña normal.</p>
       <div id="accList" class="card glass"></div>
       <div><button class="btn" id="addAcc">${icon("plus")}Registrar correo</button></div>
       <div id="accForm"></div>
@@ -306,6 +492,8 @@ function accountForm(box, a = null) {
         <div class="grid-2">
           <label class="field"><span>Servidor IMAP</span><input class="input" name="host" value="${a?.host || ""}" placeholder="Automático"></label>
           <label class="field"><span>Puerto</span><input class="input" name="port" type="number" value="${a?.port || 993}"></label>
+          <label class="field"><span>Servidor SMTP (para enviar)</span><input class="input" name="smtp_host" value="${a?.smtp_host || ""}" placeholder="Automático"></label>
+          <label class="field"><span>Puerto SMTP</span><input class="input" name="smtp_port" type="number" value="${a?.smtp_port || ""}" placeholder="465"></label>
         </div>
         <label class="field" style="margin-top:12px"><span>Carpetas a revisar</span><input class="input" name="folders" value="${a?.folders || "INBOX"}"><small>Separadas por comas. INBOX es la bandeja de entrada.</small></label>
       </details>
@@ -324,12 +512,16 @@ function accountForm(box, a = null) {
   };
   sync();
   f.provider.addEventListener("change", sync);
-  const data = () => { const d = Object.fromEntries(new FormData(f)); d.port = Number(d.port) || 993; if (!d.name) d.name = (presets[d.provider]?.label || "").split(" ")[0]; return d; };
+  const data = () => { const d = Object.fromEntries(new FormData(f)); d.port = Number(d.port) || 993; d.smtp_port = Number(d.smtp_port) || 0; if (!d.name) d.name = (presets[d.provider]?.label || "").split(" ")[0]; return d; };
+  const appPwdProblem = (d) => (d.provider === "gmail" && d.password && d.password.replace(/\s/g, "").length !== 16)
+    ? "Eso parece tu contraseña normal. Gmail necesita una contraseña de aplicación de 16 letras: ábrela con el enlace de arriba." : "";
   $("#afCancel", box).onclick = () => (box.innerHTML = "");
   $("#afTest", box).onclick = async () => {
     const out = $("#afResult", box);
     out.className = "result"; out.textContent = "Conectando…";
     const d = data();
+    const warn = appPwdProblem(d);
+    if (warn) { out.className = "result err"; out.textContent = warn; return; }
     const r = a && !d.password ? await api.testSavedAccount(a.id) : await api.testAccount(d);
     out.className = `result ${r.ok ? "ok" : "err"}`;
     out.textContent = r.ok ? `Conectada: ${r.unread} sin leer` : r.error;
@@ -338,6 +530,8 @@ function accountForm(box, a = null) {
     e.preventDefault();
     try {
       const d = data();
+      const warn = appPwdProblem(d);
+      if (warn) { $("#afResult", box).className = "result err"; $("#afResult", box).textContent = warn; return; }
       if (a) await api.patchAccount(a.id, d); else await api.addAccount(d);
       box.innerHTML = "";
       toast(a ? "Cuenta actualizada" : "Correo registrado. EDI ya lo revisa.");
@@ -376,7 +570,13 @@ async function renderDevices(body) {
           <li>El micrófono funciona en Chrome (Android) y Safari (iPhone).</li>
         </ul>
       </div>
+      <div class="panel glass" id="siriPanel">
+        <h2 style="font-size:var(--fs-lg)">“Oye Siri, EDI” en tu iPhone</h2>
+        <p class="muted">El iPhone no deja que una página escuche con la pantalla apagada. Con este atajo le hablas a EDI desde cualquier lugar del teléfono —incluso bloqueado— y Siri te lee la respuesta. Sigue la misma conversación: puedes decir “Oye Siri, EDI” → “envíalo”.</p>
+        <div id="siriBody" class="muted">Cargando…</div>
+      </div>
     </div>`;
+  loadSiri($("#siriBody", body), d.remote);
   if (d.lan_url) {
     $("#qr", body).innerHTML = `<img src="/api/devices/qr.svg?t=${Date.now()}" alt="Código QR para abrir EDI en el celular">`;
     $("#copyUrl", body).onclick = async () => { try { await navigator.clipboard.writeText(d.lan_url); toast("Dirección copiada"); } catch { toast(d.lan_url); } };
@@ -385,6 +585,31 @@ async function renderDevices(body) {
       await api.rotatePin(); renderDevices(body);
     });
   }
+}
+
+async function loadSiri(box, remote) {
+  let s;
+  try { s = await api.siri(); } catch (e) { box.textContent = e.message; return; }
+  if (!s.url) { box.textContent = "Reinicia EDI (Apagar EDI → EDI.app) para activar el atajo de Siri."; return; }
+  box.innerHTML = html`
+    <div class="big-url" style="font-size:var(--fs-sm);word-break:break-all">${s.url}</div>
+    <div class="row" style="margin:10px 0 14px">
+      <button class="btn btn-primary" id="copySiri">Copiar dirección del atajo</button>
+      ${remote ? "" : raw(`<button class="btn btn-quiet" id="rotSiri">${icon("refresh")}Nueva llave</button>`)}
+    </div>
+    <ol style="margin:0;padding-left:20px;color:var(--text-2);display:grid;gap:8px;line-height:1.5">
+      <li>Abre esta misma pantalla en tu iPhone (la app EDI) y toca <b>Copiar dirección del atajo</b>.</li>
+      <li>Abre la app <b>Atajos</b> → <b>+</b>. Agrega la acción <b>Dictar texto</b> (Idioma: Español (México); Dejar de escuchar: <i>Después de una pausa</i>).</li>
+      <li>Agrega <b>Obtener contenido de URL</b>, pega la dirección y toca la flecha: <b>Método: POST</b>, <b>Cuerpo de solicitud: JSON</b>, agrega un campo de <b>Texto</b> con clave <code>text</code> y valor <b>Texto dictado</b>.</li>
+      <li>Agrega <b>Hablar texto</b> con <b>Contenido de la URL</b>.</li>
+      <li>Nombra el atajo <b>EDI</b>. Listo: di <b>“Oye Siri, EDI”</b>, espera el tono y habla.</li>
+    </ol>
+    <p class="muted" style="margin-top:10px">Funciona con tu iPhone en el mismo Wi‑Fi que la Mac y EDI encendido. La llave es privada: si la compartiste por error, toca “Nueva llave” y actualiza el atajo.</p>`;
+  $("#copySiri", box).onclick = async () => { try { await navigator.clipboard.writeText(s.url); toast("Dirección copiada"); } catch { prompt("Copia la dirección:", s.url); } };
+  $("#rotSiri", box)?.addEventListener("click", async () => {
+    if (!confirm("El atajo actual dejará de funcionar hasta que pegues la nueva dirección. ¿Continuar?")) return;
+    await api.siriRotate(); loadSiri(box, remote);
+  });
 }
 
 function refreshHealth() { app.refreshHealth?.(); }

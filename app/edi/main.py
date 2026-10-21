@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, db, mail, providers, security
-from .api import chat, devices, events, mail as mail_api, memory, settings, voice
+from .api import chat, connections as conn_api, devices, events, mail as mail_api, memory, settings, voice, whatsapp as wa_api
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("edi")
@@ -16,9 +16,18 @@ log = logging.getLogger("edi")
 STATIC = Path(__file__).resolve().parent.parent / "static"
 app = FastAPI(title="EDI", version=__version__)
 app.add_middleware(security.PinMiddleware)
-for r in (chat.router, memory.router, mail_api.router, settings.router, voice.router, events.router, devices.router):
+for r in (chat.router, memory.router, mail_api.router, settings.router, voice.router, events.router, devices.router, wa_api.router, conn_api.router):
     app.include_router(r)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+@app.middleware("http")
+async def fresh_static(request, call_next):
+    """La interfaz siempre se revalida (ETag): cada actualización se ve al recargar, sin caché vieja."""
+    resp = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.on_event("startup")

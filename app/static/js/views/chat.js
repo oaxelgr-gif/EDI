@@ -3,11 +3,12 @@ import { api } from "../api.js";
 import { store } from "../store.js";
 import { $, el, esc, html, icon, raw } from "../ui/dom.js";
 import { toast } from "../ui/toast.js";
+import { draftCard } from "../ui/composer.js";
 import * as listener from "../voice/listener.js";
 import { mountOrb } from "../voice/orb.js";
 import { hasPending, onSpeakState, playPending, speak, speakLevel, speakState, stop as stopSpeaking } from "../voice/speaker.js";
 
-const STATE_LABEL = { idle: "", speaking: "hablando", loading: "preparando voz", listening: "te escucho", wake: "di “EDI” y tu orden", armed: "¿sí?", blocked: "" };
+const STATE_LABEL = { idle: "", speaking: "hablando", loading: "preparando voz", listening: "te escucho", wake: "di “EDI” y tu orden", armed: "te escucho…", blocked: "" };
 const SUGGESTIONS = ["Dame mi resumen", "¿Tengo correos?", "Precio del dólar", "¿Cómo está el clima?", "Mis tareas"];
 
 let root, cleanup = [], listenState = "idle", ctx = {}, queued = null, renderId = 0;
@@ -66,7 +67,7 @@ export async function render(container, params, app) {
   });
 
   listener.on("interim", (t) => { if (t) $("#orbState", root).textContent = t; });
-  listener.on("result", (t) => ask(t));
+  listener.on("result", (t) => { voiceTurn = listener.listenMode() !== "wake"; ask(t); });
   listener.on("state", (s) => { listenState = s; updateState(); });
   listener.on("error", (m) => toast(m, "error", 5000));
   if (store.wake && !listener.listenMode()) listener.start("wake");
@@ -88,15 +89,25 @@ function updateState() {
   label.textContent = STATE_LABEL[s] ?? "";
   $("#mic", root)?.classList.toggle("on", s === "listening" || s === "armed");
   if (s === "speaking") listener.pauseWake(); else if (s === "idle") listener.resumeWake();
+  // Modo conversación con el botón de micrófono: si le hablaste por voz, al terminar de responder vuelve a escucharte
+  const sp = speakState();
+  if (prevSpeak === "speaking" && sp === "idle" && voiceTurn && !listener.listenMode()) {
+    voiceTurn = false;
+    listener.chime(true);
+    listener.start("once");
+  }
+  prevSpeak = sp;
 }
+let voiceTurn = false, prevSpeak = "idle";
 
 function toggleMic() {
+  voiceTurn = false;
   stopSpeaking();
   if (listener.listenMode() === "once") listener.stop();
   else listener.start("once");
 }
 
-function addLine(role, text, { meta = "", alert = false, speakNow = false, sources = null } = {}) {
+function addLine(role, text, { meta = "", alert = false, speakNow = false, sources = null, ttsId = null } = {}) {
   const list = $("#transcript", root);
   if (!list) return null;
   list.querySelector(".empty-hello")?.remove();
@@ -117,12 +128,12 @@ function addLine(role, text, { meta = "", alert = false, speakNow = false, sourc
   }
   list.append(li);
   li.scrollIntoView({ block: "end", behavior: "smooth" });
-  if (role === "edi") { store.lastReply = text; if (speakNow) speakWithFallbackHint(li, text); }
+  if (role === "edi") { store.lastReply = text; if (speakNow) speakWithFallbackHint(li, text, ttsId); }
   return li;
 }
 
-async function speakWithFallbackHint(li, text) {
-  await speak(text);
+async function speakWithFallbackHint(li, text, ttsId) {
+  await speak(text, ttsId);
   if (hasPending()) {
     const b = el(`<button class="tap">Toca para escuchar</button>`);
     b.addEventListener("click", () => { b.remove(); playPending(); });
@@ -144,7 +155,7 @@ async function greet(token = renderId) {
   try {
     const r = await api.greeting();
     if (token !== renderId) return;
-    addLine("edi", r.reply, { speakNow: true });
+    addLine("edi", r.reply, { speakNow: true, ttsId: r.tts_id });
     if (r.data?.mail) ctx.setMailCount?.(r.data.mail.total);
   } catch { /* sin conexión: queda el saludo estático */ }
 }
@@ -184,8 +195,9 @@ export async function ask(text) {
       store.set({ sessionId: r.session_id });
       history.replaceState(null, "", `#/chat/${r.session_id}`);
     }
-    if (r.repeat) { speak(r.reply); return; }
-    addLine("edi", r.reply, { meta: r.provider, speakNow: true, sources: r.data?.sources });
+    if (r.repeat) { speak(r.reply, r.tts_id); return; }
+    const line = addLine("edi", r.reply, { meta: r.provider, speakNow: true, sources: r.data?.sources, ttsId: r.tts_id });
+    if (r.data?.draft) showDraft(line, r.data.draft);
     ctx.refreshSidebar?.();
     if (r.data?.mail) ctx.setMailCount?.(r.data.mail.total);
     if (r.data?.tasks) ctx.setTaskCount?.(r.data.tasks.length);
@@ -194,6 +206,18 @@ export async function ask(text) {
     t.remove();
     addLine("edi", "No logro comunicarme con mi servidor. Revisa que Docker esté encendido.", { alert: true });
   }
+}
+
+/** Tarjetas de borrador: una por id; las anteriores pendientes quedan reemplazadas. */
+const draftCards = new Map();
+function showDraft(line, d) {
+  const prev = draftCards.get(d.id);
+  if (prev?.isConnected) { prev.update(d); return; }
+  if (d.status === "pending") draftCards.forEach((c) => c.isConnected && c.querySelector("[data-send]:not(:disabled)") && c.update({ status: "replaced" }));
+  const card = draftCard(d, { onDone: (r) => r.message && addLine("edi", r.message, { speakNow: true }) });
+  draftCards.set(d.id, card);
+  (line || $("#transcript", root))?.append(card);
+  card.scrollIntoView({ block: "end", behavior: "smooth" });
 }
 
 /** Avisos en vivo (recordatorios, correo nuevo) cuando esta vista está abierta. */

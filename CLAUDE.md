@@ -78,3 +78,14 @@ docker compose run --rm edi python -c "from edi import mail; print(mail.fetch_un
 
 **R7 · Memoria más inteligente**
 > Cuando el usuario diga algo con "mi/mis" + dato ("mi cumpleaños es…", "mi jefe se llama…"), sugiere guardarlo como nota. Agrega comando "olvida todo sobre X".
+
+## v0.4 — envío de correo y WhatsApp
+- `app/edi/drafts.py`: intenciones de enviar/responder correo y WhatsApp → borrador en tabla `drafts`; sólo se envía con «envíalo»/botón (caduca 15 min).
+- `app/edi/mail.py`: `mark_read`, `mark_all_read`, `send` (SMTP con la contraseña de aplicación).
+- `whatsapp/` (Node 22 + Baileys) es un segundo servicio de compose; `app/edi/whatsapp.py` es su cliente. Sesión en `data/whatsapp/`.
+- Interfaz: `ui/composer.js` (redactor + tarjeta de borrador), `views/whatsapp.js`.
+
+## v0.5 — trabajo (Jira, GitHub, Slack) y CRUD completo
+- Pendientes con `category` (personal/trabajo), `notes`, `priority`, `link`, y enlace externo (`conn_id`, `ext_key`, `ext_status`).
+- `app/edi/connectors/` (Jira Cloud y Server/DC, GitHub, Slack) · `work.py` · `work_voice.py` · `api/connections.py`. Ver docs/CONEXIONES.md.
+- Notas editables (FTS con trigger de UPDATE), conversaciones renombrables, borradores con canales jira_create/jira_move/jira_comment/slack.

@@ -56,3 +56,30 @@
   .drawer-close { display: inline-grid; }
   .topbar { padding: 10px 10px 4px; }
 }
+
+/* ---------- Celular / app en pantalla de inicio (iPhone con notch y barra de estado translúcida) ---------- */
+@media (max-width: 1100px) {
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  .shell { height: var(--app-h, 100dvh); }
+  .shell { padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  .drawer { inset: calc(env(safe-area-inset-top) + 8px) auto calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 8px);
+            width: min(86vw, var(--drawer)); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .topbar { position: relative; z-index: 5; padding: 8px 10px 6px; min-height: 52px; }
+  .topbar [data-action="toggle-drawer"] { width: 44px; height: 44px; border-radius: 14px; background: var(--glass-2);
+            border: 1px solid var(--glass-line); -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); }
+  .topbar .icon-btn { min-width: 44px; min-height: 44px; }
+  .drawer-nav a, .session-list a { padding: 12px 12px; font-size: var(--fs-md); }
+  .session-list .del { opacity: .6; }
+  .session-list li .when { visibility: visible; }
+  .session-list a { padding-right: 40px; }
+}
+@media (max-width: 640px) {
+  .topbar-title { font-size: var(--fs-md); color: var(--text); }
+  .status span:not(.status-dot) { display: none; }
+  .status { padding: 6px; }
+}
+.session-list .ren { position: absolute; right: 32px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; opacity: 0; }
+.session-list li:hover .ren, .session-list .ren:focus-visible { opacity: 1; }
+.session-list li:hover .t { margin-right: 52px; }
+.ren-input { width: 100%; padding: 8px 10px; font-size: var(--fs-sm); }
+@media (max-width: 1100px) { .session-list .ren { opacity: .6; } .session-list a { padding-right: 70px; } }

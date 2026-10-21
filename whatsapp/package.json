@@ -1,0 +1,13 @@
+{
+  "name": "edi-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Puente WhatsApp para EDI (dispositivo vinculado con Baileys). Sólo red interna de Docker.",
+  "main": "index.mjs",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "^9.6.0"
+  }
+}

@@ -16,6 +16,13 @@ CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
   INSERT INTO notes_fts(rowid, text) VALUES (new.id, new.text); END;
 CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
   INSERT INTO notes_fts(notes_fts, rowid, text) VALUES('delete', old.id, old.text); END;
+CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts, rowid, text) VALUES('delete', old.id, old.text);
+  INSERT INTO notes_fts(rowid, text) VALUES (new.id, new.text); END;
+CREATE TABLE IF NOT EXISTS connections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, name TEXT NOT NULL, base_url TEXT DEFAULT '',
+    username TEXT DEFAULT '', secret TEXT DEFAULT '', config TEXT DEFAULT '{}', enabled INTEGER DEFAULT 1,
+    last_sync TEXT, last_error TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, created TEXT, updated TEXT);
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, text TEXT NOT NULL, created TEXT NOT NULL,
@@ -28,6 +35,10 @@ CREATE TABLE IF NOT EXISTS providers (
 CREATE TABLE IF NOT EXISTS usage (
     provider_id INTEGER, day TEXT, requests INTEGER DEFAULT 0, tokens INTEGER DEFAULT 0, errors INTEGER DEFAULT 0,
     last_error TEXT, PRIMARY KEY (provider_id, day));
+CREATE TABLE IF NOT EXISTS drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, channel TEXT NOT NULL, account_id INTEGER,
+    to_addr TEXT, to_name TEXT, subject TEXT, body TEXT, reply_uid TEXT, status TEXT DEFAULT 'pending',
+    error TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, provider TEXT NOT NULL, host TEXT, port INTEGER DEFAULT 993,
     user TEXT NOT NULL, password TEXT, folders TEXT DEFAULT 'INBOX', enabled INTEGER DEFAULT 1, created TEXT);
@@ -61,6 +72,19 @@ def init():
         for col, ddl in (("session_id", "INTEGER"), ("meta", "TEXT")):  # migración desde v1
             if col not in cols:
                 c.execute(f"ALTER TABLE messages ADD COLUMN {col} {ddl}")
+        tcols = {r["name"] for r in c.execute("PRAGMA table_info(tasks)")}
+        for col, ddl in (("notes", "TEXT DEFAULT ''"), ("priority", "TEXT DEFAULT 'normal'"), ("link", "TEXT DEFAULT ''"),  # v0.5
+                         ("category", "TEXT DEFAULT 'personal'"), ("ext_key", "TEXT DEFAULT ''"), ("conn_id", "INTEGER"),
+                         ("ext_status", "TEXT DEFAULT ''"), ("updated", "TEXT")):
+            if col not in tcols:
+                c.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}")
+        dcols = {r["name"] for r in c.execute("PRAGMA table_info(drafts)")}
+        if "extra" not in dcols:   # v0.5: datos propios del canal (fecha del ticket, canal de Slack…)
+            c.execute("ALTER TABLE drafts ADD COLUMN extra TEXT DEFAULT ''")
+        acols = {r["name"] for r in c.execute("PRAGMA table_info(accounts)")}
+        for col, ddl in (("smtp_host", "TEXT"), ("smtp_port", "INTEGER")):  # migración v0.4
+            if col not in acols:
+                c.execute(f"ALTER TABLE accounts ADD COLUMN {col} {ddl}")
 
 
 def rows(sql: str, args=()):
@@ -99,21 +123,41 @@ def set_settings(values: dict):
 
 
 # ---------- tareas ----------
-def add_task(text: str, due: Optional[datetime] = None, source: str = "usuario") -> int:
-    return run("INSERT INTO tasks(text, due, source, created) VALUES (?,?,?,?)",
-               (text, due.isoformat(timespec="minutes") if due else None, source, iso()))
+TASK_FIELDS = ("text", "due", "done", "notes", "priority", "link", "category", "ext_key", "conn_id", "ext_status", "source")
 
 
-def list_tasks(include_done: bool = False):
-    return rows("SELECT * FROM tasks" + ("" if include_done else " WHERE done=0") + " ORDER BY done, due IS NULL, due, id")
+def add_task(text: str, due: Optional[datetime] = None, source: str = "usuario", **extra) -> int:
+    f = {k: v for k, v in extra.items() if k in TASK_FIELDS}
+    cols = ["text", "due", "source", "created", "updated"] + list(f)
+    vals = [text, due.isoformat(timespec="minutes") if isinstance(due, datetime) else due, source, iso(), iso()] + list(f.values())
+    return run(f"INSERT INTO tasks({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", vals)
+
+
+def get_task(task_id: int):
+    return one("SELECT * FROM tasks WHERE id=?", (task_id,))
+
+
+def task_by_ext(conn_id: int, ext_key: str):
+    return one("SELECT * FROM tasks WHERE conn_id=? AND ext_key=?", (conn_id, ext_key))
+
+
+def list_tasks(include_done: bool = False, category: str | None = None):
+    where = [] if include_done else ["done=0"]
+    args = []
+    if category:
+        where.append("category=?")
+        args.append(category)
+    return rows("SELECT * FROM tasks" + (" WHERE " + " AND ".join(where) if where else "") +
+                " ORDER BY done, due IS NULL, due, id", args)
 
 
 def update_task(task_id: int, **fields) -> bool:
-    allowed = {k: v for k, v in fields.items() if k in ("text", "due", "done")}
+    allowed = {k: v for k, v in fields.items() if k in TASK_FIELDS}
     if not allowed:
         return False
     if "due" in allowed:
         allowed["reminded"] = 0
+    allowed["updated"] = iso()
     sets = ", ".join(f"{k}=?" for k in allowed)
     return run(f"UPDATE tasks SET {sets} WHERE id=?", (*allowed.values(), task_id)) > 0
 
@@ -158,6 +202,10 @@ def search_notes(query: str, limit: int = 5):
                     (" OR ".join(f'"{w}"' for w in words), limit))
     except sqlite3.OperationalError:
         return []
+
+
+def update_note(note_id: int, text: str) -> bool:
+    return run("UPDATE notes SET text=? WHERE id=?", (text, note_id)) > 0
 
 
 def delete_note(note_id: int) -> bool:
@@ -208,3 +256,60 @@ def unseen_mail_uids(uids):
 def mark_mail_seen(uids):
     with conn() as c:
         c.executemany("INSERT OR IGNORE INTO mail_seen(uid, account, created) VALUES (?,?,?)", [(u, "", iso()) for u in uids])
+
+
+# ---------- borradores (correo / WhatsApp) que esperan tu confirmación ----------
+def add_draft(session_id: int, channel: str, **f) -> int:
+    run("UPDATE drafts SET status='replaced' WHERE session_id=? AND status='pending'", (session_id,))
+    return run("INSERT INTO drafts(session_id, channel, account_id, to_addr, to_name, subject, body, reply_uid, extra, created) "
+               "VALUES (?,?,?,?,?,?,?,?,?,?)",
+               (session_id, channel, f.get("account_id"), f.get("to_addr", ""), f.get("to_name", ""), f.get("subject", ""),
+                f.get("body", ""), f.get("reply_uid", ""), f.get("extra", ""), iso()))
+
+
+def get_draft(did: int):
+    return one("SELECT * FROM drafts WHERE id=?", (did,))
+
+
+def pending_draft(session_id: int):
+    return one("SELECT * FROM drafts WHERE session_id=? AND status='pending' ORDER BY id DESC LIMIT 1", (session_id,))
+
+
+def update_draft(did: int, **f) -> bool:
+    f = {k: v for k, v in f.items() if k in ("account_id", "to_addr", "to_name", "subject", "body", "status", "error", "extra")}
+    if not f:
+        return False
+    return run(f"UPDATE drafts SET {', '.join(k + '=?' for k in f)} WHERE id=?", (*f.values(), did)) > 0
+
+
+# ---------- conexiones (Jira, GitHub, Slack…) ----------
+def list_connections(kind: str | None = None, only_enabled: bool = False):
+    where, args = [], []
+    if kind:
+        where.append("kind=?"); args.append(kind)
+    if only_enabled:
+        where.append("enabled=1")
+    return rows("SELECT * FROM connections" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id", args)
+
+
+def get_connection(cid: int):
+    return one("SELECT * FROM connections WHERE id=?", (cid,))
+
+
+def add_connection(kind: str, name: str, base_url: str = "", username: str = "", secret: str = "", config: str = "{}",
+                   enabled: int = 1) -> int:
+    return run("INSERT INTO connections(kind, name, base_url, username, secret, config, enabled, created) VALUES (?,?,?,?,?,?,?,?)",
+               (kind, name, base_url, username, secret, config, enabled, iso()))
+
+
+def update_connection(cid: int, **f) -> bool:
+    allowed = {k: v for k, v in f.items() if k in ("name", "base_url", "username", "secret", "config", "enabled", "last_sync", "last_error")}
+    if not allowed:
+        return False
+    return run(f"UPDATE connections SET {', '.join(f'{k}=?' for k in allowed)} WHERE id=?", (*allowed.values(), cid)) > 0
+
+
+def delete_connection(cid: int) -> bool:
+    run("DELETE FROM tasks WHERE conn_id=? AND done=1", (cid,))
+    run("UPDATE tasks SET conn_id=NULL WHERE conn_id=?", (cid,))
+    return run("DELETE FROM connections WHERE id=?", (cid,)) > 0

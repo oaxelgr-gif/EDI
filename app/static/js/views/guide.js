@@ -5,6 +5,8 @@ const SECTIONS = [
   ["mic", "Hablar con EDI", [
     "Toca el anillo o el botón del micrófono y habla. También puedes escribir abajo.",
     "Con la app <b>EDI Helper</b> (barra de menú) basta con decir <q>Hey EDI</q> o pulsar <kbd>⌥</kbd> + <kbd>Espacio</kbd>, aunque estés en otra app.",
+    "<b>Modo conversación:</b> después de cada respuesta EDI sigue escuchando unos segundos (oirás un tono), así contestas <q>envíalo</q> o <q>el segundo</q> sin repetir <q>Hey EDI</q>.",
+    "<b>En el iPhone:</b> crea el atajo <q>Oye Siri, EDI</q> desde Ajustes → Dispositivos; funciona aunque el teléfono esté bloqueado.",
     "Di <q>repite</q> o toca <span class='muted'>↻</span> para volver a escuchar una respuesta.",
   ]],
   ["list", "Pendientes y recordatorios", [
@@ -23,7 +25,27 @@ const SECTIONS = [
   ]],
   ["mail", "Correo", [
     "Registra tus cuentas en Ajustes → Correos (o di <q>agrega una cuenta de correo</q>).",
-    "<q>¿Tengo correos?</q> te dice cuántos y cuáles parecen importantes. EDI sólo lee: nunca envía ni borra.",
+    "<q>¿Tengo correos?</q> te dice cuántos y cuáles parecen importantes.",
+    "<q>Manda un correo a juan@gmail.com diciendo que mañana no voy</q> · <q>Responde el correo de CFE diciendo que ya pagué</q>",
+    "EDI prepara un <b>borrador</b>: revísalo y di <q>envíalo</q> (o toca Enviar). <q>Cancela</q> lo descarta. Nunca envía sin tu confirmación.",
+    "<q>Marca todos mis correos como leídos</q>. En la sección Correo también puedes ver, responder, redactar y marcar cada uno.",
+  ]],
+  ["chat", "WhatsApp", [
+    "Abre la sección WhatsApp y escanea el código QR desde tu celular: WhatsApp → <b>Dispositivos vinculados</b> → <b>Vincular un dispositivo</b>.",
+    "<b>«Mándale un mensaje a…» siempre es WhatsApp</b>; <b>«Manda un correo a…»</b> siempre es correo (Gmail primero).",
+    "<q>Mándale un mensaje a mi jefa</q> → EDI pregunta <q>¿Qué le digo?</q> → <q>Que llego en 10 minutos</q> → <q>Envíalo</q>.",
+    "<q>Mándale un mensaje a mamá diciendo que llego tarde</q> (todo en una frase también funciona). Usa los nombres como los tienes guardados en tu celular.",
+    "<q>Lee los últimos 5 mensajes de Juan</q> · <q>¿Qué me dijo mamá?</q> · <q>Resume el chat del trabajo</q> · <q>¿Tengo mensajes de WhatsApp?</q>",
+    "En la sección WhatsApp ves todos tus chats, puedes buscar cualquier contacto y escribirle con <b>Nuevo mensaje</b>.",
+    "Usa un puente no oficial (Baileys): úsalo con moderación y para tus propios chats. Puedes desvincular cuando quieras.",
+  ]],
+  ["list", "Trabajo: Jira, GitHub y Slack", [
+    "Conéctalos en <b>Ajustes → Conexiones</b>. Lo asignado a ti aparece en <b>Pendientes → Trabajo</b> con recordatorios; lo personal queda en <b>Personales</b>.",
+    "<q>¿Qué tickets tengo?</q> · <q>¿Cómo va EDI-12?</q> · <q>Sincroniza Jira</q> · <q>¿Qué PRs tengo?</q> · <q>¿Pasó el build de la app?</q>",
+    "<q>Crea un ticket arreglar el login para el viernes</q> · <q>Mueve EDI-12 a en curso</q> · <q>Termina EDI-12</q> · <q>Comenta en EDI-12 que ya quedó</q>",
+    "<q>Mándale un Slack a Ana diciendo que ya subí el cambio</q> · <q>¿Tengo mensajes en Slack?</q> · reacciona con ✅ a un mensaje para volverlo pendiente.",
+    "Todo lo que cambia algo en Jira o Slack te muestra un borrador: revisa y di <q>sí</q> o <q>créalo</q>. Si editas o terminas un pendiente de Jira en EDI, también se actualiza en Jira.",
+    "<q>Agrega un pendiente de trabajo revisar el contrato</q> lo guarda como trabajo; sin decirlo, queda como personal.",
   ]],
   ["phone", "En tu celular u otra computadora", [
     "Abre Ajustes → Dispositivos y escanea el código QR con el celular (misma red Wi‑Fi).",

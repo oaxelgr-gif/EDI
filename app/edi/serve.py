@@ -57,11 +57,17 @@ def ensure_cert() -> bool:
 
 async def main():
     from .main import app
-    servers = [uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning"))]
+    http_host = os.getenv("EDI_HTTP_HOST", "0.0.0.0")
+    http_port = int(os.getenv("EDI_HTTP_PORT", "8000"))
+    https_port = int(os.getenv("EDI_HTTPS_PORT", "8443"))
+    servers = [uvicorn.Server(uvicorn.Config(app, host=http_host, port=http_port, log_level="warning"))]
     if ensure_cert():
-        servers.append(uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8443, log_level="warning",
+        servers.append(uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=https_port, log_level="warning",
                                                      ssl_certfile=str(CERT), ssl_keyfile=str(KEY))))
-    # Un solo manejador de señales para ambos servidores
+    sc_port = int(os.getenv("EDI_SHORTCUT_PORT", "0") or 0)
+    if sc_port:  # atajo de Siri desde el iPhone (sólo /api/shortcut con llave)
+        servers.append(uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=sc_port, log_level="warning")))
+    # Un solo manejador de señales para todos los servidores
     for s in servers[1:]:
         s.install_signal_handlers = lambda: None
     await asyncio.gather(*(s.serve() for s in servers))

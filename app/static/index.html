@@ -9,11 +9,13 @@
   <title>EDI</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="EDI">
   <script>
     // Aplica el tema guardado antes de pintar (evita el parpadeo)
     try { const t = localStorage.getItem("edi.theme"); if (t && t !== '"auto"') document.documentElement.dataset.theme = JSON.parse(t); } catch {}
   </script>
+  <script src="/static/js/look.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
@@ -36,6 +38,7 @@
         <a href="#/tasks" data-nav="tasks"><span data-icon="list"></span>Pendientes<span class="count" id="countTasks"></span></a>
         <a href="#/memory" data-nav="memory"><span data-icon="brain"></span>Memoria</a>
         <a href="#/mail" data-nav="mail"><span data-icon="mail"></span>Correo<span class="count" id="countMail"></span></a>
+        <a href="#/whatsapp" data-nav="whatsapp"><span data-icon="chat"></span>WhatsApp<span class="count" id="countWa"></span></a>
         <a href="#/settings" data-nav="settings"><span data-icon="gear"></span>Ajustes</a>
         <a href="#/guide" data-nav="guide"><span data-icon="help"></span>Guía de uso</a>
       </nav>

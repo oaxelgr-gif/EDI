@@ -23,6 +23,7 @@ WHISPER_MODEL = _env("WHISPER_MODEL", "base")
 
 # Valores por defecto de los ajustes editables desde la interfaz
 DEFAULT_SETTINGS = {
+    "sync_minutes": "10",          # cada cuánto se sincronizan Jira/GitHub/Slack (0 = sólo manual)
     "user_name": _env("EDI_USER_NAME", "jefe"),
     "llm_max_tokens": _env("LLM_MAX_TOKENS", "350"),
     "llm_history": "6",

@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import agent, mail
+from .. import agent, db, drafts, mail
 
 router = APIRouter(prefix="/api", tags=["correo"])
 
@@ -17,6 +17,8 @@ class AccountIn(BaseModel):
     port: int = 993
     folders: str = "INBOX"
     enabled: int = 1
+    smtp_host: str = ""
+    smtp_port: int = 0
 
 
 class AccountPatch(BaseModel):
@@ -28,6 +30,8 @@ class AccountPatch(BaseModel):
     port: int | None = None
     folders: str | None = None
     enabled: int | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
 
 
 @router.get("/mail")
@@ -78,3 +82,76 @@ async def test_saved(aid: int):
     if not a:
         raise HTTPException(404, "Esa cuenta no existe.")
     return await asyncio.to_thread(mail.test_login, a)
+
+
+class ReadIn(BaseModel):
+    uids: list[str] = []
+    all: bool = False
+    seen: bool = True
+
+
+class SendIn(BaseModel):
+    account_id: int
+    to: str
+    subject: str = ""
+    body: str
+    reply_uid: str = ""
+
+
+@router.get("/mail/message")
+async def message(uid: str):
+    try:
+        return await asyncio.to_thread(mail.get_message, uid)
+    except Exception as e:
+        raise HTTPException(409, str(e))
+
+
+@router.post("/mail/read")
+async def mark_read(body: ReadIn):
+    try:
+        n = await asyncio.to_thread(mail.mark_all_read) if body.all else await asyncio.to_thread(mail.mark_read, body.uids, body.seen)
+    except Exception as e:
+        raise HTTPException(409, mail.friendly(str(e)))
+    agent.invalidate_mail()
+    return {"ok": True, "count": n}
+
+
+@router.post("/mail/send")
+async def send(body: SendIn):
+    """Envío directo desde el formulario (el usuario ya presionó Enviar)."""
+    try:
+        res = await asyncio.to_thread(drafts.send_email, body.account_id, body.to, body.subject, body.body, body.reply_uid)
+    except Exception as e:
+        raise HTTPException(409, str(e))
+    return res
+
+
+class DraftPatch(BaseModel):
+    account_id: int | None = None
+    to_addr: str | None = None
+    to_name: str | None = None
+    subject: str | None = None
+    body: str | None = None
+    extra: str | None = None
+
+
+@router.get("/drafts/{did}")
+def get_draft(did: int):
+    d = db.get_draft(did)
+    if not d:
+        raise HTTPException(404, "Ese borrador ya no existe.")
+    return d
+
+
+@router.post("/drafts/{did}/send")
+async def send_draft(did: int, body: DraftPatch):
+    db.update_draft(did, **body.model_dump(exclude_none=True))
+    try:
+        return await asyncio.to_thread(drafts.send_draft, did)
+    except Exception as e:
+        raise HTTPException(409, str(e))
+
+
+@router.delete("/drafts/{did}")
+def cancel_draft(did: int):
+    return {"ok": db.update_draft(did, status="cancelled")}

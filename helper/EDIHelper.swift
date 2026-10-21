@@ -10,7 +10,7 @@ import Speech
 
 let SERVER = "http://127.0.0.1:8765"
 let PURPLE = NSColor(calibratedRed: 0.70, green: 0.40, blue: 1.0, alpha: 1)
-let WAKE = try! NSRegularExpression(pattern: "\\b(?:(?:hey|oye|ok|ey)\\s+)?(?:edi|eddie|eddy|edy|heidi|e d i)\\b[\\s,.:!]*", options: [])
+let WAKE = try! NSRegularExpression(pattern: "\\b(?:(?:hey|oye|ok|okay|ey|ei|hei|hola)[\\s,]+)?(?:edi|eddie|eddy|edy|edie|eddi|edith|hedi|hedy|heidi|jedi|e\\.? ?d\\.? ?i)\\b[\\s,.:!?]*", options: [])
 
 func fold(_ s: String) -> String {
     s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "es_MX")).lowercased()
@@ -191,6 +191,16 @@ final class Voice: NSObject {
         armSilence(initial: true)
     }
 
+    /// Modo conversación: tras responder, escucha unos segundos sin necesitar "Hey EDI"
+    var onFollowUp: (() -> Void)?
+    func startFollowUp() {
+        begin(.command)
+        commandStart = 0
+        onFollowUp?()
+        silence?.invalidate()
+        silence = Timer.scheduledTimer(withTimeInterval: 6, repeats: false) { [weak self] _ in self?.finishCommand() }
+    }
+
     func stop() {
         silence?.invalidate(); restart?.invalidate()
         task?.cancel(); task = nil
@@ -286,6 +296,9 @@ final class Voice: NSObject {
 
 // MARK: - App
 final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate {
+    private var stream: AVPlayer?
+    private var streamObs: [NSObjectProtocol] = []
+    private var followUps = 0
     private var item: NSStatusItem!
     private let hud = HUD()
     private let voice = Voice()
@@ -306,10 +319,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         voice.wakeEnabled = defaults.bool(forKey: "wake")
         voice.onState = { [weak self] m in self?.setIcon(listening: m == .command) }
         voice.onListening = { [weak self] in
+            self?.followUps = 0
             NSSound(named: "Tink")?.play()
             self?.hud.show("Te escucho…", state: "EDI · escuchando")
         }
         voice.onPartial = { [weak self] t in self?.hud.show(t, state: "EDI · escuchando") }
+        voice.onFollowUp = { [weak self] in
+            NSSound(named: "Pop")?.play()
+            self?.hud.show("¿Algo más? Te escucho…", state: "EDI · conversación")
+        }
         voice.onCommand = { [weak self] c in self?.ask(c) }
 
         hotKeyAction = { [weak self] in self?.listenNow() }
@@ -369,7 +387,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
 
     // ---- acciones ----
     @objc func listenNow() {
-        player?.stop()
+        player?.stop(); stopStream()
+        followUps = 0
         voice.authorize { [weak self] ok, msg in
             guard let self = self else { return }
             if ok { self.voice.startCommand() } else { self.hud.show(msg ?? "", state: "EDI · permisos", autoHide: 8) }
@@ -403,10 +422,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
 
     // ---- conversación ----
     private func ask(_ text: String) {
-        guard !text.isEmpty else { hud.hide(); resume(); return }
+        guard !text.isEmpty else { hud.hide(); followUps = 0; resume(followUp: false); return }
         guard online else {
             hud.show("EDI está apagado. Lo estoy encendiendo; vuelve a pedírmelo en un momento.", state: "EDI", autoHide: 6)
-            startServer(); resume(); return
+            startServer(); resume(followUp: false); return
         }
         hud.show(text, state: "EDI · pensando")
         var body: [String: Any] = ["text": text]
@@ -417,7 +436,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
             guard code == 200, let data = data,
                   let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let reply = j["reply"] as? String else {
-                self.hud.show("No pude comunicarme con EDI.", state: "EDI", autoHide: 5); self.resume(); return
+                self.hud.show("No pude comunicarme con EDI.", state: "EDI", autoHide: 5); self.resume(followUp: false); return
             }
             if let s = j["session_id"] as? Int { self.defaults.set(s, forKey: "session") }
             self.hud.show(reply, state: "EDI")
@@ -425,15 +444,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
                 let tab = action["tab"] as? String ?? ""
                 NSWorkspace.shared.open(URL(string: SERVER + "/#/\(open)/\(tab)?new=1")!)
             }
-            self.speak(reply)
+            self.speak(reply, id: j["tts_id"] as? String)
         }
     }
 
-    private func speak(_ text: String) {
+    /// Voz en streaming: empieza a sonar con los primeros fragmentos que genera el servidor.
+    private func speak(_ text: String, id: String?) {
+        guard let id = id, let url = URL(string: SERVER + "/api/tts/stream/" + id) else { speakWhole(text); return }
+        stopStream()
+        let item = AVPlayerItem(url: url)
+        let p = AVPlayer(playerItem: item)
+        p.automaticallyWaitsToMinimizeStalling = false
+        stream = p
+        let nc = NotificationCenter.default
+        streamObs.append(nc.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+            self?.stopStream(); self?.hud.hide(after: 2.5); self?.resume()
+        })
+        streamObs.append(nc.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+            self?.stopStream(); self?.speakWhole(text)
+        })
+        p.play()
+        // Si en 6 s no arrancó (sin red, formato), usa la descarga completa
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+            guard let self = self, self.stream === p, item.status == .failed || (p.rate == 0 && item.currentTime().seconds < 0.1) else { return }
+            self.stopStream(); self.speakWhole(text)
+        }
+    }
+
+    private func stopStream() {
+        stream?.pause(); stream = nil
+        streamObs.forEach { NotificationCenter.default.removeObserver($0) }
+        streamObs.removeAll()
+    }
+
+    private func speakWhole(_ text: String) {
         EDIClient.request("/api/tts", method: "POST", json: ["text": text], timeout: 25) { [weak self] data, code in
             guard let self = self else { return }
             guard code == 200, let data = data, let p = try? AVAudioPlayer(data: data) else {
-                self.hud.hide(after: 6); self.resume(); return
+                self.hud.hide(after: 6); self.resume(followUp: false); return
             }
             self.player = p
             p.delegate = self
@@ -446,10 +494,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AVAudioPlayerDelegate 
         resume()
     }
 
-    private func resume() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+    /// Después de responder: hasta 3 veces seguidas escucha sin palabra clave (conversación); luego vuelve a "Hey EDI".
+    private func resume(followUp: Bool = true) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self = self else { return }
-            if self.voice.wakeEnabled { self.voice.startWake() } else { self.voice.stop() }
+            if followUp && self.followUps < 3 {
+                self.followUps += 1
+                self.voice.startFollowUp()
+            } else {
+                self.followUps = 0
+                if self.voice.wakeEnabled { self.voice.startWake() } else { self.voice.stop() }
+            }
         }
     }
 }

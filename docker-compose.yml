@@ -11,6 +11,7 @@ services:
       - EDI_DATA_DIR=/data
       - EDI_CONFIG_DIR=/config
       - EDI_LAN_HOST=${EDI_LAN_HOST:-}
+      - EDI_WHATSAPP_URL=http://whatsapp:3000
     volumes:
       - ./data:/data              # memoria, tareas, certificados (persisten al apagar)
       - ./config:/config:ro
@@ -20,3 +21,14 @@ services:
     restart: "no"
     mem_limit: 512m
     cpus: 1.0
+
+  # Puente WhatsApp (dispositivo vinculado). Sin puertos publicados: sólo EDI lo usa.
+  whatsapp:
+    build: ./whatsapp
+    image: edi-whatsapp:latest
+    container_name: edi-whatsapp
+    volumes:
+      - ./data/whatsapp:/auth     # sesión vinculada y mensajes recientes
+    restart: "no"
+    mem_limit: 256m
+    cpus: 0.5

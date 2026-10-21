@@ -11,6 +11,7 @@ function themeColors() {
 let COLORS = themeColors();
 new MutationObserver(() => (COLORS = themeColors())).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", () => (COLORS = themeColors()));
+window.addEventListener("edi:look", () => (COLORS = themeColors()));
 const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export function mountOrb(canvas, getState, getLevel) {

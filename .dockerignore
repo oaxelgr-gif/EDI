@@ -8,3 +8,8 @@ tests
 assets
 **/__pycache__
 *.md
+whatsapp
+helper
+_to_delete
+.venv
+.runtime

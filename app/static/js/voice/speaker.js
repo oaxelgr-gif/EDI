@@ -17,13 +17,17 @@ export const speakLevel = () => (state === "speaking" ? (analyser ? levelOf(anal
 export const hasPending = () => !!pending;
 
 export function stop() {
-  if (current) { current.audio.pause(); URL.revokeObjectURL(current.url); current = null; }
+  if (current) { const c = current; current = null; c.audio.pause(); c.audio.removeAttribute("src"); if (c.url?.startsWith("blob:")) URL.revokeObjectURL(c.url); }
   if ("speechSynthesis" in window) speechSynthesis.cancel();
   analyser = null;
   if (state !== "idle") setState("idle");
 }
 
-export async function speak(text) {
+/**
+ * Habla un texto. Si el servidor ya empezó a generar la voz (ttsId de /api/ask), se reproduce en streaming:
+ * suena casi al mismo tiempo que aparece el texto.
+ */
+export async function speak(text, ttsId = null) {
   if (!text) return;
   stop();
   if (store.muted) return;
@@ -31,10 +35,17 @@ export async function speak(text) {
   const s = store.settings || {};
   const useServer = (s.tts_engine || "edge") === "edge" && store.health?.tts !== false;
   if (useServer) {
+    setState("loading");
     try {
-      setState("loading");
+      const id = ttsId || (await api.ttsStart(text, s.tts_voice, s.tts_rate, s.tts_pitch)).id;
+      return await playUrl(`/api/tts/stream/${id}`, text);
+    } catch (e) {
+      if (e && e.name === "NotAllowedError") return;
+      console.warn("Streaming de voz no disponible, intento completo", e);
+    }
+    try {
       const blob = await api.tts(text, s.tts_voice, s.tts_rate, s.tts_pitch);
-      return await playBlob(blob, text);
+      return await playUrl(URL.createObjectURL(blob), text);
     } catch (e) {
       if (e && e.name === "NotAllowedError") return;
       console.warn("Voz en línea no disponible, uso la del navegador", e);
@@ -43,10 +54,46 @@ export async function speak(text) {
   speakBrowser(text);
 }
 
-async function playBlob(blob, text) {
-  const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
+const MSE = window.MediaSource && MediaSource.isTypeSupported?.("audio/mpeg");
+
+/** Alimenta el audio fragmento por fragmento (MediaSource): suena en cuanto llega el primer pedazo,
+ *  sin esperar a que el navegador "junte" suficiente audio. */
+function feed(audio, url) {
+  const ms = new MediaSource();
+  const objUrl = URL.createObjectURL(ms);
+  audio.src = objUrl;
+  ms.addEventListener("sourceopen", async () => {
+    let sb;
+    try { sb = ms.addSourceBuffer("audio/mpeg"); sb.mode = "sequence"; } catch { audio.dispatchEvent(new Event("error")); return; }
+    const queue = []; let ended = false;
+    const pump = () => {
+      if (sb.updating || ms.readyState !== "open") return;
+      if (queue.length) { try { sb.appendBuffer(queue.shift()); } catch { /* cuota: reintenta */ setTimeout(pump, 50); } }
+      else if (ended) { try { ms.endOfStream(); } catch {} }
+    };
+    sb.addEventListener("updateend", pump);
+    try {
+      const r = await fetch(url);
+      if (!r.ok || !r.body) throw new Error("tts");
+      const reader = r.body.getReader();
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (current?.audio !== audio) { reader.cancel(); return; }
+        queue.push(value); pump();
+      }
+      ended = true; pump();
+    } catch { if (!audio.currentTime) audio.dispatchEvent(new Event("error")); else { ended = true; pump(); } }
+  }, { once: true });
+  return objUrl;
+}
+
+function playUrl(url, text) {
+  const audio = new Audio();
+  audio.preload = "auto";
   current = { audio, url };
+  if (MSE && url.startsWith("/api/tts/stream/")) current.url = feed(audio, url);
+  else audio.src = url;
   analyser = null;
   if (audioReady()) {
     const c = audioCtx();
@@ -57,20 +104,20 @@ async function playBlob(blob, text) {
     analyser.connect(c.destination);
   }
   audio.onended = () => { if (current?.audio === audio) stop(); };
-  audio.onerror = () => { if (current?.audio === audio) stop(); };
-  try {
-    await audio.play();
-    pending = null;
-    setState("speaking");
-  } catch (e) {
-    if (e.name === "NotAllowedError") {     // el navegador exige un clic antes del primer audio
-      pending = text;
-      current = null;
-      setState("blocked");
-      e.name = "NotAllowedError";
-    }
-    throw e;
-  }
+  return new Promise((resolve, reject) => {
+    let started = false;
+    audio.onplaying = () => { started = true; pending = null; setState("speaking"); resolve(); };
+    audio.onerror = () => {
+      if (current?.audio !== audio) return;
+      if (!started) { current = null; reject(new Error("audio")); } else stop();
+    };
+    audio.play().catch((e) => {
+      if (e.name === "NotAllowedError") {     // el navegador exige un toque antes del primer audio
+        pending = text; current = null; setState("blocked");
+      }
+      if (!started) reject(e);
+    });
+  });
 }
 
 export function playPending() {

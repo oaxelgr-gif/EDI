@@ -35,6 +35,22 @@ def devices(request: Request):
             "remote": security.is_remote(request), "host": host}
 
 
+@router.get("/api/devices/siri")
+def siri(request: Request):
+    host = os.getenv("EDI_LAN_HOST", "").strip()
+    port = security.SHORTCUT_PORT
+    url = f"http://{host}:{port}/api/shortcut?token={security.api_token()}" if host and port else ""
+    return {"url": url, "enabled": bool(port)}
+
+
+@router.post("/api/devices/siri/rotate")
+def siri_rotate(request: Request):
+    if security.is_remote(request):
+        raise HTTPException(403, "Hazlo desde la Mac.")
+    security.new_api_token()
+    return siri(request)
+
+
 @router.post("/api/devices/pin")
 def rotate_pin(request: Request):
     if security.is_remote(request):

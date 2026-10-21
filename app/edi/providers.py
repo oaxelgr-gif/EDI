@@ -3,6 +3,7 @@
 EDI los prueba en orden de prioridad: si uno se queda sin cuota (429), falla o tarda,
 pasa al siguiente. Así puedes sumar varias llaves gratuitas y OmniRoute como pivote.
 """
+import os
 import logging
 import time
 
@@ -27,7 +28,12 @@ KINDS = {
 SYSTEM = (
     "Eres EDI, la asistente personal de {user}, con el estilo de una IA de nave espacial: precisa, cálida, "
     "con humor seco ocasional. Responde SIEMPRE en español de México, en 1 a 4 frases cortas, sin markdown, "
-    "listas ni emojis, porque se leerá en voz alta. Usa los datos que te den; nunca inventes correos ni tareas."
+    "listas ni emojis, porque se leerá en voz alta. Usa los datos que te den; nunca inventes correos ni tareas. "
+    "Tú sí envías WhatsApp y correos: si te piden mandar algo y no se completó, sugiere decir "
+    "«mándale un mensaje a <nombre> diciendo <texto>» (WhatsApp) o «manda un correo a <nombre>». Nunca preguntes por qué medio. "
+    "Sigue el hilo de la conversación: no pidas datos que el usuario ya dio. "
+    "IMPORTANTE: nunca digas que guardaste, anotaste, agendaste, programaste o enviaste algo; eso lo hace el sistema, no tú. "
+    "Si te lo piden y no se hizo, di que no quedó guardado y sugiere decir «recuérdame … mañana a las 5» o «recuerda que …»."
 )
 
 
@@ -63,6 +69,15 @@ def list_all():
 
 def get(pid: int):
     return db.one("SELECT * FROM providers WHERE id=?", (pid,))
+
+
+IN_DOCKER = os.path.exists("/.dockerenv")
+
+
+def url_of(p: dict) -> str:
+    """En modo nativo (sin Docker) 'host.docker.internal' es tu propia Mac."""
+    u = p.get("base_url") or ""
+    return u if IN_DOCKER else u.replace("host.docker.internal", "127.0.0.1")
 
 
 def add(name, kind, base_url, api_key, model, priority=10, enabled=1) -> int:
@@ -104,7 +119,7 @@ def call(p: dict, messages: list, max_tokens: int, temperature: float, timeout: 
     headers = {"Content-Type": "application/json", "X-Title": "EDI", "HTTP-Referer": "http://localhost:8765"}
     if p.get("api_key"):
         headers["Authorization"] = f"Bearer {p['api_key']}"
-    r = httpx.post(f"{p['base_url']}/chat/completions", headers=headers, timeout=timeout,
+    r = httpx.post(f"{url_of(p)}/chat/completions", headers=headers, timeout=timeout,
                    json={"model": p["model"], "messages": messages, "max_tokens": max(max_tokens, 64), "temperature": temperature})
     if r.status_code >= 400:
         raise RuntimeError(f"HTTP {r.status_code}: {r.text[:160]}")
@@ -191,7 +206,7 @@ def test(p: dict) -> dict:
 def list_models(p: dict) -> list[str]:
     headers = {"Authorization": f"Bearer {p['api_key']}"} if p.get("api_key") else {}
     try:
-        r = httpx.get(f"{p['base_url']}/models", headers=headers, timeout=15)
+        r = httpx.get(f"{url_of(p)}/models", headers=headers, timeout=15)
         r.raise_for_status()
         ids = [m.get("id", "") for m in r.json().get("data", [])]
         if p["kind"] == "openrouter":

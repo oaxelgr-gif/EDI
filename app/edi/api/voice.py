@@ -1,7 +1,7 @@
 import asyncio
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from .. import tts
@@ -30,6 +30,23 @@ async def speak(body: Speak):
     except Exception as e:
         raise HTTPException(503, f"Voz en línea no disponible: {e}")
     return Response(audio, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/tts/start")
+async def tts_start(body: Speak):
+    jid = tts.start(body.text, body.voice, body.rate, body.pitch)
+    if not jid:
+        raise HTTPException(503, "Voz en línea no disponible.")
+    return {"id": jid}
+
+
+@router.get("/tts/stream/{jid}")
+async def tts_stream(jid: str):
+    """MP3 progresivo: el navegador empieza a reproducir con los primeros fragmentos."""
+    if not tts.has_job(jid):
+        raise HTTPException(404, "Ese audio ya caducó.")
+    return StreamingResponse(tts.stream(jid), media_type="audio/mpeg",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 @router.post("/stt")

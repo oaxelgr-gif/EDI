@@ -133,6 +133,7 @@ RULES = [
     ("help", r"^(ayuda|que puedes hacer|que sabes hacer|comandos)"),
     ("time", r"\bque hora es\b"),
     ("date", r"\b(que dia es|que fecha es)"),
+    ("agenda", r"^(que tengo|que hay|mi agenda|agenda|que pendientes tengo|tengo algo|que me toca)( en mi agenda| agendado| pendiente)?( para)? (hoy|manana|pasado manana|el (lunes|martes|miercoles|jueves|viernes|sabado|domingo)|esta semana|la semana|la proxima semana|el fin de semana|este fin)\b|^(mi agenda|agenda|que tengo esta semana)$"),
     ("briefing", r"^(resumen|dame (el|un|mi) resumen|que tengo (hoy|pendiente)|mis pendientes|pendientes|"
                  r"buenos dias|buenas tardes|buenas noches|reporte|informe)"),
     ("settings_mail", r"\b(agrega|agregar|registra|registrar|conecta|conectar|configura|configurar|anade|anadir|nueva|nuevo|otra|otro)\b.*\b(cuenta|correo|email|mail)\b"),
@@ -145,21 +146,28 @@ RULES = [
     ("delete_task", r"^(borra|elimina|quita|cancela)(r)? (la )?(tarea|recordatorio|pendiente)"),
     ("delete_note", r"^(borra|elimina|olvida)(r)? (la )?nota"),
     ("list_tasks", r"^(mis tareas|que tengo que hacer|lista de tareas|tareas|ver tareas|recordatorios)\b"),
-    ("add_task", r"^((ok(ay)?|oye|bueno|y)\s*,?\s*)?((quiero|necesito) que )?(me recuerdes|recuerdame|no me dejes olvidar)|^(recuerdame|recordarme|recordar(me)? que|avisame|agrega(r)? (una )?(tarea|pendiente)|"
-                 r"anota (una )?tarea|tengo que|nueva tarea|pon(me)? (un )?recordatorio)"),
-    ("add_note", r"^(recuerda que|anota que|guarda que|no olvides que|apunta que|memoriza que|toma nota)"),
+    ("add_task", r"^((ok(ay)?|oye|bueno|y)\s*,?\s*)?((quiero|necesito) que )?(me recuerdes|recuerdame|no me dejes olvidar)|^(recuerdame|recordarme|recordar(me)? que|avisame|agrega(r)? (una |un )?(tarea|pendiente|recordatorio)|"
+                 r"anota(r)? (una |un )?(tarea|pendiente|recordatorio)|tengo que|nueva tarea|nuevo (pendiente|recordatorio)|pon(er|me)? (un )?recordatorio|"
+                 r"agenda(r|me)?\b|programa(r|me)? (un )?(recordatorio|aviso|alarma)|crea(r|me)? (un |una )?(recordatorio|pendiente|tarea)|haz(me)? (un )?recordatorio|"
+                 r"guarda(r|me)? (un |una |como )?(recordatorio|pendiente|tarea)|(un )?recordatorio (para|de|que)\b|avisame)"),
+    ("add_note", r"^(recuerda que|anota que|guarda que|no olvides que|apunta que|memoriza que|toma nota|recuerdes que|te acuerdes (de )?que|"
+                 r"acuerdate (de )?que|no se te olvide que|guarda(r)? en (tu )?memoria|memoriza(r)?|aprende(te)? que|ten en cuenta que|"
+                 r"anota(r)? en (tu )?memoria|guarda(r)? (esto|este dato|el dato)|recuerda esto|recuerda (mi|mis|el|la|los|las) )"),
     ("recall", r"^(que te dije|que recuerdas|que sabes|que anote|que guarde|busca en (tu memoria|mis notas))"),
     ("list_notes", r"^(mis notas|que (cosas )?recuerdas$|que tienes guardado)"),
     ("search", r"^(busca(me|r)?|investiga(me)?|googlea|consulta|averigua|dime que dice internet)\b|\b(en (la )?(web|internet|google))\b|^(cual es el precio|cuanto cuesta|cuanto vale|quien gano|que paso (con|en)|noticias|ultimas noticias|resultado del)\b"),
-    ("greet", r"^(hola|que tal|como estas|hey)\b"),
+    ("greet", r"^(hola|que tal|como estas|hey|buenos dias|buenas tardes|buenas noches|buen dia)( edi)?( como estas)?$"),
 ]
 
 STRIP = {
-    "add_task": r"^((ok(ay)?|oye|bueno|y)\s*,?\s*)?((quiero|necesito) que )?(me recuerdes|no me dejes olvidar)\s*(que|de|para)?\s*(el dia de )?|^(tengo que\s+|recuerdame|recordarme|recordar(me)? que|avisame|agrega(r)? (una )?(tarea|pendiente)|anota (una )?tarea|"
-                r"nueva tarea|pon(me)? (un )?recordatorio)\s*(que|de|para|:)?\s*",
-    "add_note": r"^(recuerda que|anota que|guarda que|no olvides que|apunta que|memoriza que|toma nota( de)?( que)?)\s*:?\s*",
+    "add_task": r"^((ok(ay)?|oye|bueno|y)\s*,?\s*)?((quiero|necesito) que )?(me recuerdes|no me dejes olvidar)\s*(?:(?:que|de|para)\b)?\s*(el dia de )?|^(tengo que\s+|recuerdame|recordarme|recordar(me)? que|avisame|"
+                r"(agrega(r)?|anota(r)?|crea(r|me)?|guarda(r|me)?|pon(er|me)?|haz(me)?|programa(r|me)?|agenda(r|me)?)?\s*(una |un |como )?(nueva |nuevo )?(tarea|pendiente|recordatorio|aviso|alarma)?)"
+                r"\s*(?:(?:que|de|para)\b|:)?\s*(que\s+)?(me recuerde(s)?\s+)?",
+    "add_note": r"^(recuerda que|anota que|guarda que|no olvides que|apunta que|memoriza que|toma nota( de)?( que)?|recuerdes que|te acuerdes (de )?que|acuerdate (de )?que|"
+                r"no se te olvide que|guarda(r)? en (tu )?memoria( que)?|memoriza(r)?( que)?|aprende(te)? que|ten en cuenta que|anota(r)? en (tu )?memoria( que)?|"
+                r"guarda(r)? (esto|este dato|el dato)( que)?|recuerda esto( que)?|recuerda)\s*:?\s*",
     "search": r"^(busca(me|r)?|investiga(me)?|googlea|consulta|averigua|dime que dice internet)\s*(en (la )?(web|internet|google))?\s*(sobre|de|el|la|los|las|que|cual|cuanto)?\s*",
-    "recall": r"^(que te dije|que recuerdas|que sabes|que anote|que guarde|busca en (tu memoria|mis notas))\s*(de|del|sobre|acerca de|con)?\s*",
+    "recall": r"^(que te dije|que recuerdas|que sabes|que anote|que guarde|busca en (tu memoria|mis notas))\s*(del|de|sobre|acerca de|con)?\b\s*",
     "complete": r"^(ya (hice|termine|acabe|complete)|completa(r)?|marca(r)? (como )?(hecha|lista|completada)|tacha(r)?|termine)\s*(la )?(tarea)?\s*(de |del |el |la )?",
 }
 
@@ -167,11 +175,23 @@ STRIP = {
 def detect(text: str, now: datetime) -> Intent:
     text = WAKE.sub("", text.strip())
     f = fold(text).strip(" ¿?¡!.")
-    f_clean = re.sub(r"^(por favor|porfa|oye)\s*,?\s*", "", f)
+    f_clean = re.sub(r"^(?:(?:por favor|porfa|oye|ok|okay|bueno|ahora|y|me gustaria que|me gustaria|quisiera que|quisiera|quiero que|necesito que|"
+                     r"puedes|podrias|pudieras|me (?:puedes|podrias|pudieras) ayudar a|(?:me )?(?:puedas|pudieras) ayudar a|ayudame a|"
+                     r"me ayudas a|seria posible|edi)\s*,?\s+)+", "", f)
+    # subjuntivo → imperativo: "que me agendes" → "agendame"
+    f_clean = re.sub(r"^(?:que\s+)?me\s+(agendes|anotes|recuerdes|guardes|pongas|crees|programes)\b",
+                     lambda m: {"agendes": "agendame", "anotes": "anota", "recuerdes": "recuerdame", "guardes": "guarda",
+                                "pongas": "ponme", "crees": "creame", "programes": "programame"}[m.group(1)], f_clean)
+    f_clean = re.sub(r"^(?:que\s+)?(agendes|anotes|guardes|pongas|crees|programes|recuerdes|memorices)\b",
+                     lambda m: {"agendes": "agenda", "anotes": "anota", "guardes": "guarda", "pongas": "pon", "crees": "crea",
+                                "programes": "programa", "recuerdes": "recuerdes", "memorices": "memoriza"}[m.group(1)], f_clean)
     offset = len(f) - len(f_clean)
     for name, rx in RULES:
         if re.search(rx, f_clean):
-            body = text[offset:] if offset else text
+            t2 = text.strip(" ¿?¡!.")
+            body = t2[offset:] if 0 <= offset <= len(t2) else t2
+            if fold(body) != f_clean:   # hubo cambio de verbo: usa el texto ya normalizado
+                body = f_clean
             body = body.strip(" ¿?¡!.")
             if name in STRIP:
                 m = re.match(STRIP[name], fold(body))

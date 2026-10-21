@@ -26,6 +26,13 @@ async def loop():
             for t in (db.due_reminders() if subscribers else []):
                 await broadcast({"type": "reminder", "text": f"Recordatorio: {t['text']}.", "task": t})
             ticks += 1
+            sync_min = int(db.get_setting("sync_minutes") or 0)
+            if sync_min > 0 and (ticks == 2 or ticks % (sync_min * 2) == 0) and db.list_connections(only_enabled=True):
+                from .. import connectors
+                res = await asyncio.to_thread(connectors.sync_all)
+                added = sum(r.get("added", 0) for r in res.values() if r.get("ok"))
+                if added and subscribers:
+                    await broadcast({"type": "tasks", "text": f"Tienes {added} pendiente{'s' if added != 1 else ''} de trabajo nuevo{'s' if added != 1 else ''}."})
             minutes = int(db.get_setting("mail_check_minutes") or 0)
             if subscribers and minutes > 0 and ticks % (minutes * 2) == 0 and mail.list_accounts(only_enabled=True):
                 data = await asyncio.to_thread(agent.get_mail, True)

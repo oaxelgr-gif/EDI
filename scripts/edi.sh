@@ -1,27 +1,35 @@
 #!/bin/bash
 # ============================================================
-#  EDI - control central
-#  Uso: ./scripts/edi.sh [start|stop|restart|status|logs|open|rebuild|outlook correo|test|backup]
+#  EDI - control central (modo NATIVO, sin Docker: arranca en segundos y usa ~80 MB de RAM)
+#  Uso: ./scripts/edi.sh [start|stop|restart|status|logs|open|rebuild|test|backup]
+#  Para volver a Docker: pon EDI_MODE=docker en .env (usa scripts/edi-docker.sh).
 # ============================================================
 set -euo pipefail
-
-# Rutas típicas de Homebrew (Intel = /usr/local) para que funcione también desde el acceso directo
-export PATH="$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 EDI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$EDI_DIR"
+if grep -qs '^EDI_MODE=docker' .env; then exec /bin/bash "$EDI_DIR/scripts/edi-docker.sh" "$@"; fi
+
 URL="http://localhost:8765"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-LOG="$EDI_DIR/data/edi-launcher.log"
-mkdir -p "$EDI_DIR/data"
+DATA="$EDI_DIR/data"
+LOG="$DATA/edi-launcher.log"
+SRV_LOG="$DATA/edi-server.log"
+PIDF="$DATA/edi.pid"
+RT="$EDI_DIR/.runtime"
+UV="$RT/bin/uv"
+PY="$EDI_DIR/.venv/bin/python"
+mkdir -p "$DATA" "$RT/bin"
 
 say_msg() { echo "▸ $*"; }
 
 # ---- Progreso para la ventana de EDI.app: data/launch-status = "porcentaje|mensaje|segundos_restantes" ----
-STATUS="$EDI_DIR/data/launch-status"
-LAST_DUR="$EDI_DIR/data/last-launch-seconds"
+STATUS="$DATA/launch-status"
+LAST_DUR="$DATA/last-launch-seconds"
+[ -f "$DATA/.native" ] || { rm -f "$LAST_DUR"; touch "$DATA/.native"; }   # tiempos viejos de Docker ya no sirven
 START_TS=$(date +%s)
-progress() {  # progress 42 "Mensaje"
+progress() {
   local pct=$1 msg=$2 now el last eta=-1
   now=$(date +%s); el=$((now - START_TS))
   last=$(cat "$LAST_DUR" 2>/dev/null || echo 0)
@@ -33,129 +41,174 @@ progress() {  # progress 42 "Mensaje"
   [ "$msg" != "${LAST_MSG:-}" ] && echo "[$pct%] $msg" >> "$LOG"
   LAST_MSG=$msg
 }
-fail() { printf -- '-1|%s|0\n' "$1" > "$STATUS"; echo "ERROR: $1" >> "$LOG"; notify "$1"; exit 1; }
 notify() { osascript -e "display notification \"$1\" with title \"EDI\"" >/dev/null 2>&1 || true; }
+fail() { printf -- '-1|%s|0\n' "$1" > "$STATUS"; echo "ERROR: $1" >> "$LOG"; notify "$1"; exit 1; }
 
-# ¿Responde el motor Docker? (consulta rápida al socket con límite de 3 s; `docker info` a veces se cuelga)
-docker_ok() {
-  for sock in "$HOME/.docker/run/docker.sock" "/var/run/docker.sock" "$HOME/.colima/default/docker.sock"; do
-    [ -S "$sock" ] && curl -s --max-time 3 --unix-socket "$sock" http://localhost/_ping 2>/dev/null | grep -q OK && return 0
-  done
-  return 1
+healthy() { curl -fs --max-time 2 "$URL/api/health" >/dev/null 2>&1; }
+running() { [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; }
+
+# ---- Instalación única: uv (gestor de Python, 1 archivo) + Python 3.12 + dependencias ----
+ensure_uv() {
+  [ -x "$UV" ] && return 0
+  progress 8 "Descargando uv (sólo la primera vez)"
+  curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$RT/bin" UV_NO_MODIFY_PATH=1 INSTALLER_NO_MODIFY_PATH=1 sh >>"$LOG" 2>&1 \
+    || fail "No pude descargar uv. ¿Hay internet?"
+  [ -x "$UV" ] || fail "uv no quedó instalado. Revisa data/edi-launcher.log"
 }
 
-compose() {
-  if [ -x "$HOME/.docker/bin/docker-compose" ] || command -v docker-compose >/dev/null 2>&1; then docker-compose "$@"
-  else docker compose "$@"; fi
-}
-
-ensure_docker() {
-  progress 8 "Revisando el motor Docker"
-  if docker_ok; then progress 30 "Docker listo"; return 0; fi
-  if [ -d "/Applications/Docker.app" ]; then
-    progress 10 "Encendiendo Docker Desktop"; open -ga Docker
-  elif command -v colima >/dev/null 2>&1; then
-    progress 10 "Encendiendo Colima"
-    (colima start --cpu 2 --memory 3 --disk 15 >>"$LOG" 2>&1 || colima start >>"$LOG" 2>&1) &
-  else
-    fail "No encontré Docker. Ejecuta scripts/01_instalar_dependencias.sh"
+ensure_python() {
+  ensure_uv
+  export UV_PYTHON_INSTALL_DIR="$RT/python" UV_CACHE_DIR="$RT/cache"
+  if [ ! -x "$PY" ]; then
+    progress 20 "Preparando Python 3.12 (sólo la primera vez, ~30 MB)"
+    "$UV" venv --python 3.12 "$EDI_DIR/.venv" >>"$LOG" 2>&1 || fail "No pude preparar Python. Revisa data/edi-launcher.log"
   fi
-  for i in $(seq 1 120); do
-    docker_ok && { progress 30 "Docker listo"; return 0; }
-    progress $((10 + i * 19 / 120)) "Esperando a que Docker termine de encender"
-    sleep 2
-  done
-  fail "Docker no respondió en 4 minutos. Ábrelo manualmente y vuelve a intentar."
-}
-
-wait_healthy() {
-  for i in $(seq 1 90); do
-    curl -fs --max-time 2 "$URL/api/health" >/dev/null 2>&1 && return 0
-    progress $((86 + i * 12 / 90)) "Encendiendo el servidor de EDI"
-    sleep 1
-  done
-  return 1
-}
-
-# Construye y levanta el contenedor leyendo el avance real de Docker ([paso/total])
-build_up() {
-  local before; before=$(wc -l < "$LOG")
-  progress 32 "Preparando la imagen de EDI"
-  BUILDKIT_PROGRESS=plain compose up -d --build >>"$LOG" 2>&1 &
-  local pid=$! pct=32 line step total
-  while kill -0 "$pid" 2>/dev/null; do
-    line=$(tail -n +"$((before + 1))" "$LOG" | grep -oE '\[[0-9]+/[0-9]+\][^"]*' | tail -1 || true)
-    if [ -n "$line" ]; then
-      step=$(echo "$line" | sed -E 's/^\[([0-9]+)\/([0-9]+)\].*/\1/'); total=$(echo "$line" | sed -E 's/^\[([0-9]+)\/([0-9]+)\].*/\2/')
-      [ "$total" -gt 0 ] && pct=$((32 + step * 48 / total))
-      case "$line" in *"pip install"*) msg="Instalando dependencias de Python (paso $step de $total)";;
-                      *) msg="Construyendo EDI (paso $step de $total)";; esac
-    else msg="Preparando la imagen de EDI"; fi
-    tail -n +"$((before + 1))" "$LOG" | grep -q "Container edi.*Start" && { pct=84; msg="Arrancando el contenedor"; }
-    progress "$pct" "$msg"
-    sleep 1
-  done
-  wait "$pid"
-}
-
-open_ui() {
-  if [ -x "$CHROME" ]; then
-    # Ventana dedicada tipo app, con su propio perfil (recuerda el permiso de micrófono)
-    nohup "$CHROME" --app="$URL" --user-data-dir="$HOME/.edi-chrome" \
-      --autoplay-policy=no-user-gesture-required --window-size=1200,820 \
-      --no-first-run --no-default-browser-check >/dev/null 2>&1 &
-  else
-    open "$URL"   # Safari u otro navegador predeterminado
+  local want have
+  want=$(shasum app/requirements.txt | cut -d' ' -f1)
+  have=$(cat "$EDI_DIR/.venv/.req-hash" 2>/dev/null || true)
+  if [ "$want" != "$have" ]; then
+    progress 45 "Instalando componentes de EDI (sólo la primera vez, 1–2 min)"
+    "$UV" pip install --python "$PY" -r app/requirements.txt >>"$LOG" 2>&1 || fail "Falló la instalación. Revisa data/edi-launcher.log"
+    echo "$want" > "$EDI_DIR/.venv/.req-hash"
+    "$UV" cache clean >/dev/null 2>&1 || true   # libera espacio
   fi
 }
 
-# IP de la Mac en la red (para abrir EDI desde el celular u otra computadora)
+load_env() {  # exporta las variables de .env (CLAVE=valor)
+  [ -f .env ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+    local k=${line%%=*} v=${line#*=}
+    v=${v%\"}; v=${v#\"}; v=${v%\'}; v=${v#\'}
+    export "$k=$v"
+  done < .env
+}
+
 lan_ip() {
   local ip=""
   for i in en0 en1 en2 en3 en4; do ip=$(ipconfig getifaddr "$i" 2>/dev/null || true); [ -n "$ip" ] && break; done
   echo "$ip"
 }
-set_env() {  # set_env CLAVE valor  (en .env)
+set_env() {
+  touch .env
   if grep -q "^$1=" .env; then sed -i '' "s|^$1=.*|$1=$2|" .env; else printf '\n%s=%s\n' "$1" "$2" >> .env; fi
 }
 
-check_config() {
-  [ -f .env ] || return 1
-  [ -f config/accounts.yaml ] || cp config/accounts.example.yaml config/accounts.yaml
+# Si quedó corriendo la versión de Docker, la apaga para liberar los puertos
+stop_old_docker() {
+  for sock in "$HOME/.docker/run/docker.sock" "/var/run/docker.sock"; do
+    if [ -S "$sock" ] && curl -s --max-time 2 --unix-socket "$sock" http://localhost/_ping 2>/dev/null | grep -q OK; then
+      for c in edi edi-whatsapp; do
+        curl -s --max-time 10 --unix-socket "$sock" -X POST "http://localhost/containers/$c/stop?t=3" >/dev/null 2>&1 || true
+      done
+    fi
+  done
+}
+
+start_server() {
+  load_env
+  export EDI_DATA_DIR="$DATA" EDI_CONFIG_DIR="$EDI_DIR/config" EDI_HTTP_HOST=127.0.0.1 EDI_HTTP_PORT=8765 EDI_HTTPS_PORT=8766 EDI_SHORTCUT_PORT=8767 \
+         PYTHONPATH="$EDI_DIR/app" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+  unset EDI_WHATSAPP_URL
+  [ -f "$SRV_LOG" ] && [ "$(wc -c < "$SRV_LOG")" -gt 2000000 ] && mv "$SRV_LOG" "$SRV_LOG.old"
+  (cd "$EDI_DIR/app" && nohup "$PY" -m edi.serve >>"$SRV_LOG" 2>&1 & echo $! > "$PIDF")
+}
+
+wait_healthy() {
+  for i in $(seq 1 60); do
+    healthy && return 0
+    running || return 1
+    progress $((82 + i * 16 / 60)) "Encendiendo el servidor de EDI"
+    sleep 0.5
+  done
+  return 1
+}
+
+# Navegador: Safari (por defecto). Para volver a Chrome pon EDI_BROWSER=chrome en .env
+open_ui() {
+  if grep -qs '^EDI_BROWSER=chrome' .env && [ -x "$CHROME" ]; then
+    rm -rf "$HOME/.edi-chrome/Default/Cache" "$HOME/.edi-chrome/Default/Code Cache" 2>/dev/null || true
+    nohup "$CHROME" --app="$URL" --user-data-dir="$HOME/.edi-chrome" \
+      --autoplay-policy=no-user-gesture-required --window-size=1200,820 \
+      --no-first-run --no-default-browser-check >/dev/null 2>&1 &
+    return
+  fi
+  # Safari: si ya hay una pestaña de EDI la trae al frente y la recarga; si no, abre una ventana nueva
+  osascript >/dev/null 2>&1 <<OSA || open -a Safari "$URL"
+tell application "Safari"
+  activate
+  set found to false
+  repeat with w in windows
+    repeat with t in tabs of w
+      if (URL of t as text) starts with "$URL" then
+        set current tab of w to t
+        set index of w to 1
+        set URL of t to "$URL"
+        set found to true
+        exit repeat
+      end if
+    end repeat
+    if found then exit repeat
+  end repeat
+  if not found then make new document with properties {URL:"$URL"}
+end tell
+OSA
+}
+
+# Cierra las pestañas de EDI en Safari (sin cerrar tus otras pestañas)
+close_ui() {
+  pkill -f "user-data-dir=$HOME/.edi-chrome" 2>/dev/null || true
+  pgrep -x Safari >/dev/null 2>&1 || return 0
+  osascript >/dev/null 2>&1 <<OSA || true
+tell application "Safari"
+  repeat with w in (every window)
+    repeat with t in (every tab of w)
+      if (URL of t as text) starts with "$URL" then close t
+    end repeat
+  end repeat
+end tell
+OSA
+}
+
+stop_server() {
+  if running; then
+    kill "$(cat "$PIDF")" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6; do running || break; sleep 0.5; done
+    running && kill -9 "$(cat "$PIDF")" 2>/dev/null || true
+  fi
+  rm -f "$PIDF"
+  pkill -f "$EDI_DIR/.venv/bin/python -m edi.serve" 2>/dev/null || true
+  pkill -f "$RT/node/bin/node index.mjs" 2>/dev/null || true
 }
 
 cmd="${1:-start}"
 case "$cmd" in
   start)
     progress 2 "Iniciando EDI"
-    check_config || fail "Falta configurar EDI (.env)"
+    stop_old_docker
+    if healthy; then progress 100 "EDI ya estaba en línea"; open_ui; exit 0; fi
+    [ -f config/accounts.yaml ] || cp config/accounts.example.yaml config/accounts.yaml 2>/dev/null || true
     set_env EDI_LAN_HOST "$(lan_ip)"
-    ensure_docker
-    build_up || fail "No se pudo construir EDI. Revisa data/edi-launcher.log"
-    progress 85 "Contenedor en marcha"
-    wait_healthy || fail "El servidor de EDI no respondió. Revisa data/edi-launcher.log"
+    ensure_python
+    stop_server
+    progress 80 "Arrancando EDI"
+    start_server
+    wait_healthy || fail "El servidor no arrancó. Revisa data/edi-server.log"
     echo $(( $(date +%s) - START_TS )) > "$LAST_DUR"
     progress 100 "EDI en línea"
     say_msg "EDI en línea → $URL"; open_ui ;;
   stop)
-    compose down >>"$LOG" 2>&1 || true
-    if [ "${2:-}" = "--all" ]; then
-      if command -v colima >/dev/null 2>&1 && colima status >/dev/null 2>&1; then colima stop
-      elif [ -d "/Applications/Docker.app" ]; then osascript -e 'quit app "Docker"' >/dev/null 2>&1 || true; fi
-    fi
-    pkill -f "user-data-dir=$HOME/.edi-chrome" 2>/dev/null || true
+    stop_server
+    close_ui
     notify "EDI apagado"; say_msg "EDI apagado." ;;
   restart) "$0" stop; "$0" start ;;
-  status) compose ps; curl -s "$URL/api/health" && echo ;;
-  logs) compose logs -f --tail=100 ;;
+  status) running && echo "Proceso $(cat "$PIDF") activo" || echo "Apagado"; curl -s "$URL/api/health" && echo ;;
+  logs) tail -n 100 -f "$SRV_LOG" ;;
   open) open_ui ;;
-  rebuild) ensure_docker; compose build --no-cache && compose up -d ;;
-  outlook)
-    [ -n "${2:-}" ] || { echo "Uso: $0 outlook correo@outlook.com"; exit 1; }
-    ensure_docker; compose run --rm edi python -m edi.oauth_ms "$2" ;;
-  test) ensure_docker; compose run --rm -v "$EDI_DIR/tests:/app/tests:ro" edi sh -c "pip install -q pytest && python -m pytest -q tests" ;;
+  rebuild) stop_server; rm -rf "$EDI_DIR/.venv"; "$0" start ;;
+  test) ensure_python; "$UV" pip install --python "$PY" -q pytest && (cd "$EDI_DIR" && PYTHONPATH=app "$PY" -m pytest -q tests) ;;
   backup)
     f="$HOME/Documents/edi-backup-$(date +%Y%m%d-%H%M).tar.gz"
     tar czf "$f" data config .env && say_msg "Respaldo en $f" ;;
-  *) echo "Uso: $0 [start|stop [--all]|restart|status|logs|open|rebuild|outlook correo|test|backup]"; exit 1 ;;
+  *) echo "Uso: $0 [start|stop|restart|status|logs|open|rebuild|test|backup]"; exit 1 ;;
 esac

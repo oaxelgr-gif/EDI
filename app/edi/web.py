@@ -98,6 +98,26 @@ def weather(city: str, tomorrow: bool = False) -> str:
             f"{d['temperature_2m_min'][0]:.0f}, con {d['precipitation_probability_max'][0]}% de probabilidad de lluvia.")
 
 
+def weather_brief(city: str) -> str:
+    """Una frase para el saludo del día: temperatura actual, rango y si conviene llevar paraguas."""
+    with _client() as c:
+        g = c.get("https://geocoding-api.open-meteo.com/v1/search", params={"name": city, "count": 1, "language": "es"}, timeout=5).json()
+        if not g.get("results"):
+            return ""
+        r = g["results"][0]
+        w = c.get("https://api.open-meteo.com/v1/forecast", params={
+            "latitude": r["latitude"], "longitude": r["longitude"], "timezone": "auto",
+            "current": "temperature_2m,weather_code",
+            "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max", "forecast_days": 1}, timeout=5).json()
+    cur, d = w["current"], w["daily"]
+    rain = d["precipitation_probability_max"][0] or 0
+    txt = (f"En {r['name']} hay {cur['temperature_2m']:.0f} grados, {WMO.get(cur['weather_code'], '').strip()}; "
+           f"hoy entre {d['temperature_2m_min'][0]:.0f} y {d['temperature_2m_max'][0]:.0f}.")
+    if rain >= 40:
+        txt += f" Lleve paraguas: {rain}% de probabilidad de lluvia."
+    return txt.replace(", ;", ";")
+
+
 # ---------------- búsqueda web ----------------
 def _clean(s: str) -> str:
     return htmllib.unescape(re.sub(r"<[^>]+>", "", s)).strip()
