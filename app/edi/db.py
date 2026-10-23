@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS images (
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, provider TEXT NOT NULL, host TEXT, port INTEGER DEFAULT 993,
     user TEXT NOT NULL, password TEXT, folders TEXT DEFAULT 'INBOX', enabled INTEGER DEFAULT 1, created TEXT);
+CREATE TABLE IF NOT EXISTS satellites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, url TEXT NOT NULL, secret TEXT NOT NULL,
+    folder_label TEXT DEFAULT '', commands TEXT DEFAULT '[]', enabled INTEGER DEFAULT 1, created TEXT);
 """
 
 
@@ -119,6 +122,10 @@ def init():
         pcols = {r["name"] for r in c.execute("PRAGMA table_info(providers)")}
         if "tag" not in pcols:
             c.execute("ALTER TABLE providers ADD COLUMN tag TEXT DEFAULT 'chat'")
+        # v0.9: ediciones también en dispositivos satélite (NULL = en la carpeta local del server, como antes)
+        fcols = {r["name"] for r in c.execute("PRAGMA table_info(file_edits)")}
+        if "satellite_id" not in fcols:
+            c.execute("ALTER TABLE file_edits ADD COLUMN satellite_id INTEGER")
 
 
 def rows(sql: str, args=()):
@@ -257,11 +264,13 @@ def profile_is_empty() -> bool:
     return not one("SELECT 1 FROM profile_facts LIMIT 1")
 
 
-# ---------- edición de archivos (v0.8: EDI lee/resume/corrige archivos de una carpeta autorizada, con confirmación) ----------
-def add_file_edit(session_id: int, path: str, kind: str, instruction: str, preview: str, new_content: str) -> int:
-    return run("INSERT INTO file_edits(session_id, path, kind, instruction, preview, new_content, status, created) "
-               "VALUES (?,?,?,?,?,?,'pending',?)",
-               (session_id, path, kind, instruction, preview, new_content, iso()))
+# ---------- edición de archivos (v0.8: EDI lee/resume/corrige archivos de una carpeta autorizada, con confirmación;
+# v0.9: satellite_id NULL = carpeta local del server, con valor = ese dispositivo satélite) ----------
+def add_file_edit(session_id: int, path: str, kind: str, instruction: str, preview: str, new_content: str,
+                   satellite_id: int | None = None) -> int:
+    return run("INSERT INTO file_edits(session_id, path, kind, instruction, preview, new_content, satellite_id, status, created) "
+               "VALUES (?,?,?,?,?,?,?,'pending',?)",
+               (session_id, path, kind, instruction, preview, new_content, satellite_id, iso()))
 
 
 def get_file_edit(eid: int):
@@ -414,3 +423,33 @@ def delete_connection(cid: int) -> bool:
     run("DELETE FROM tasks WHERE conn_id=? AND done=1", (cid,))
     run("UPDATE tasks SET conn_id=NULL WHERE conn_id=?", (cid,))
     return run("DELETE FROM connections WHERE id=?", (cid,)) > 0
+
+
+# ---------- satélites (v0.9: EDI puede leer/programar también en otros dispositivos, p. ej. tu Mac,
+# aunque el cerebro/la IA corran centralizados en otra máquina) ----------
+def list_satellites(only_enabled: bool = False):
+    return rows("SELECT * FROM satellites" + (" WHERE enabled=1" if only_enabled else "") + " ORDER BY name")
+
+
+def get_satellite(sid: int):
+    return one("SELECT * FROM satellites WHERE id=?", (sid,))
+
+
+def get_satellite_by_name(name: str):
+    return one("SELECT * FROM satellites WHERE lower(name)=lower(?)", (name,))
+
+
+def add_satellite(name: str, url: str, secret: str, folder_label: str = "", commands: str = "[]") -> int:
+    return run("INSERT INTO satellites(name, url, secret, folder_label, commands, created) VALUES (?,?,?,?,?,?)",
+               (name.strip(), url.strip().rstrip("/"), secret.strip(), folder_label.strip(), commands, iso()))
+
+
+def update_satellite(sid: int, **f) -> bool:
+    allowed = {k: v for k, v in f.items() if k in ("name", "url", "secret", "folder_label", "commands", "enabled")}
+    if not allowed:
+        return False
+    return run(f"UPDATE satellites SET {', '.join(k + '=?' for k in allowed)} WHERE id=?", (*allowed.values(), sid)) > 0
+
+
+def delete_satellite(sid: int) -> bool:
+    return run("DELETE FROM satellites WHERE id=?", (sid,)) > 0

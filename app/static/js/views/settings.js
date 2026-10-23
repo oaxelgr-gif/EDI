@@ -6,7 +6,7 @@ import { toast } from "../ui/toast.js";
 import { whenIdle } from "../ui/live.js";
 import { speak } from "../voice/speaker.js";
 
-const TABS = [["general", "General"], ["look", "Diseño"], ["voice", "Voz"], ["ai", "Inteligencia"], ["mail", "Correos"], ["connections", "Conexiones"], ["devices", "Dispositivos"]];
+const TABS = [["general", "General"], ["look", "Diseño"], ["voice", "Voz"], ["ai", "Inteligencia"], ["mail", "Correos"], ["connections", "Conexiones"], ["satellites", "Satélites"], ["devices", "Dispositivos"]];
 let root, app, kinds = {}, presets = {};
 
 export async function render(container, params, ctx) {
@@ -26,11 +26,11 @@ export async function render(container, params, ctx) {
   current = { tab, params, body, dirty: false };
   body.addEventListener("input", (e) => { if (!e.target.closest?.(".no-dirty")) current.dirty = true; });   // cambios sin guardar: no redibujar encima
   body.addEventListener("submit", () => setTimeout(() => { if (current?.body === body) current.dirty = false; }, 1500), true);
-  ({ general: renderGeneral, look: renderLook, voice: renderVoice, ai: renderAI, mail: renderMail, connections: renderConnections, devices: renderDevices })[tab](body, params);
+  ({ general: renderGeneral, look: renderLook, voice: renderVoice, ai: renderAI, mail: renderMail, connections: renderConnections, satellites: renderSatellites, devices: renderDevices })[tab](body, params);
 }
 
 /* ---------------- Sincronización: algo cambió en otro dispositivo ---------------- */
-const TAB_KINDS = { general: ["settings"], voice: ["settings"], ai: ["providers"], mail: ["accounts"], connections: ["connections"], devices: ["devices", "settings"] };
+const TAB_KINDS = { general: ["settings"], voice: ["settings"], ai: ["providers"], mail: ["accounts"], connections: ["connections"], satellites: ["satellites"], devices: ["devices", "settings"] };
 let current = null;
 export function refresh(kinds) {
   if (!current || !root?.isConnected || current.dirty) return;
@@ -38,7 +38,7 @@ export function refresh(kinds) {
   const { tab, body } = current, params = { ...current.params, query: {} };
   whenIdle(body, () => {
     if (current?.body !== body || current.dirty || document.querySelector(".composer-sheet")) return;
-    ({ general: renderGeneral, voice: renderVoice, ai: renderAI, mail: renderMail, connections: renderConnections, devices: renderDevices })[tab]?.(body, params);
+    ({ general: renderGeneral, voice: renderVoice, ai: renderAI, mail: renderMail, connections: renderConnections, satellites: renderSatellites, devices: renderDevices })[tab]?.(body, params);
   });
 }
 
@@ -557,6 +557,112 @@ function accountForm(box, a = null) {
   });
   f.scrollIntoView({ behavior: "smooth", block: "center" });
   (a ? f.password : f.user).focus();
+}
+
+/* ---------------- Satélites (v0.9: EDI leyendo/programando también en tu Mac u otro equipo) ---------------- */
+async function renderSatellites(body, params) {
+  body.innerHTML = html`
+    <div class="section">
+      <h2>Dispositivos satélite</h2>
+      <p>Si el cerebro de EDI corre en otra computadora (tu server), aquí registras los demás equipos
+        —como tu Mac— donde también quieras que pueda leer, resumir y proponer cambios de archivos, o
+        correr un comando ya aprobado (por ejemplo, tus pruebas). Cada equipo corre un programita chico,
+        el "satélite" (<code>satellite/edi_satellite.py</code>), protegido con su propia clave y limitado
+        a una sola carpeta que tú elegiste ahí — EDI nunca toca el resto del disco.</p>
+      <div id="satList" class="card glass"></div>
+      <div class="row"><button class="btn" id="satAdd">${raw(icon("plus"))}Agregar dispositivo</button></div>
+      <div id="satForm"></div>
+    </div>`;
+  $("#satAdd", body).onclick = () => satelliteForm($("#satForm", body), null, body);
+  $("#satList", body).addEventListener("click", (e) => onSatClick(e, body));
+  await loadSatellites(body);
+  if (params?.query?.new) satelliteForm($("#satForm", body), null, body);
+}
+
+async function loadSatellites(body) {
+  const list = await api.satellites();
+  const box = $("#satList", body);
+  if (!list.length) { box.innerHTML = `<div class="empty">Aún no registras ningún dispositivo satélite.</div>`; return; }
+  box.innerHTML = list.map((s) => html`
+    <div class="prov ${s.enabled ? "" : "off"}" data-id="${s.id}">
+      <div>
+        <div class="prov-name"><span class="conn-ico">${raw(icon("laptop"))}</span><strong>${esc(s.name)}</strong>
+          <span class="muted">${esc(s.url)}${s.folder_label ? " · " + esc(s.folder_label) : ""}</span></div>
+        <div class="prov-meta">
+          ${s.commands.length ? raw(`<span class="muted">Comandos: ${esc(s.commands.join(", "))}</span>`) : raw(`<span class="muted">Sin comandos listados</span>`)}
+          <span class="test-out"></span>
+        </div>
+      </div>
+      <div class="prov-actions">
+        <button class="btn btn-quiet" data-act="test">Probar</button>
+        <button class="icon-btn" data-act="edit" aria-label="Editar">${raw(icon("edit"))}</button>
+        <button class="icon-btn" data-act="del" aria-label="Eliminar">${raw(icon("trash"))}</button>
+        <span class="switch"><input type="checkbox" data-act="toggle" ${s.enabled ? "checked" : ""} aria-label="Activar ${esc(s.name)}"></span>
+      </div>
+    </div>`).join("");
+  box._list = list;
+}
+
+async function onSatClick(e, body) {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  if (el.type === "checkbox" && e.type === "click") return;
+  const row = el.closest("[data-id]"), id = Number(row.dataset.id), out = row.querySelector(".test-out");
+  const s = ($("#satList", body)._list || []).find((x) => x.id === id);
+  try {
+    if (el.dataset.act === "toggle") { await api.patchSatellite(id, { enabled: el.checked }); return loadSatellites(body); }
+    if (el.dataset.act === "edit") return satelliteForm($("#satForm", body), s, body);
+    if (el.dataset.act === "del") {
+      if (!confirm(`¿Quitar «${s.name}»? EDI ya no podrá leer ni programar ahí.`)) return;
+      await api.deleteSatellite(id); toast("Dispositivo eliminado"); return loadSatellites(body);
+    }
+    out.className = "test-out muted"; out.textContent = "Probando…";
+    const r = await api.testSavedSatellite(id);
+    out.className = `test-out result ${r.ok ? "ok" : "err"}`; out.textContent = r.message;
+  } catch (err) { out.className = "test-out result err"; out.textContent = err.message; }
+}
+
+function satelliteForm(box, s, body) {
+  box.innerHTML = html`
+    <form class="panel glass" id="sf">
+      <div class="sheet-head"><h2 style="font-size:var(--fs-lg)">${s ? "Editar" : "Agregar"} dispositivo</h2>
+        <button type="button" class="icon-btn" id="sfClose" aria-label="Cerrar">${raw(icon("x"))}</button></div>
+      <p class="hint">Instala y arranca <code>satellite/edi_satellite.py</code> en ese equipo primero (ver
+        <code>satellite/LEEME.md</code>); ahí eliges su carpeta y su clave secreta — ponla igual aquí.</p>
+      <label class="field"><span>Nombre</span><input class="input" name="name" value="${s?.name || ""}" placeholder="mi mac" required></label>
+      <label class="field"><span>URL</span><input class="input" name="url" type="url" value="${s?.url || ""}"
+        placeholder="http://192.168.1.50:8790 o http://100.x.x.x:8790 (Tailscale)" required></label>
+      <label class="field"><span>Clave secreta</span><input class="input" name="secret" type="password"
+        placeholder="${s?.has_secret ? "Guardada · escribe sólo para cambiarla" : "la misma que pusiste en config.json"}"
+        ${s ? "" : "required"}></label>
+      <label class="field"><span>Qué carpeta es (sólo para que tú lo identifiques)</span>
+        <input class="input" name="folder_label" value="${s?.folder_label || ""}" placeholder="p. ej. Documents/Pharma Control"></label>
+      <label class="field"><span>Comandos aprobados (coma, deben llamarse IGUAL en config.json del satélite)</span>
+        <input class="input" name="commands" value="${(s?.commands || []).join(", ")}" placeholder="pytest, git status"></label>
+      <div class="panel-actions"><span class="result" id="sfOut"></span>
+        <button type="button" class="btn btn-quiet" id="sfTest">Probar</button>
+        <button class="btn btn-primary">${s ? "Guardar cambios" : "Agregar"}</button></div>
+    </form>`;
+  const f = $("#sf", box), out = $("#sfOut", box);
+  const data = () => Object.fromEntries(new FormData(f));
+  $("#sfClose", box).onclick = () => (box.innerHTML = "");
+  $("#sfTest", box).onclick = async () => {
+    out.className = "result muted"; out.textContent = "Probando…";
+    try {
+      const r = s ? await api.testSavedSatellite(s.id) : await api.testSatellite(data());
+      out.className = `result ${r.ok ? "ok" : "err"}`; out.textContent = r.message;
+    } catch (err) { out.className = "result err"; out.textContent = err.message; }
+  };
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    out.className = "result muted"; out.textContent = s ? "Guardando…" : "Agregando…";
+    try {
+      if (s) await api.patchSatellite(s.id, data());
+      else await api.addSatellite(data());
+      toast(s ? "Dispositivo actualizado" : "Dispositivo agregado"); box.innerHTML = ""; loadSatellites(body);
+    } catch (err) { out.className = "result err"; out.textContent = err.message; }
+  });
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /* ---------------- Dispositivos ---------------- */

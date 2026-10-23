@@ -78,12 +78,17 @@ git pull
 scripts\windows\edi.ps1 rebuild
 ```
 
+## 7. Tailscale (opcional, para entrar desde cualquier red)
+
+Si ya usas Tailscale en tu Mac/iPhone, instálalo también aquí (https://tailscale.com/download/windows,
+inicia sesión con la misma cuenta) y `edi.ps1 start` lo detecta solo — te va a dar una URL
+`https://100.x.x.x:8766` que funciona estés donde estés, no sólo en tu Wi-Fi de casa.
+Sin Tailscale, de todos modos funciona dentro de tu red con `https://IP-de-esta-PC:8766` (pide PIN).
+
 ## Notas
 
-- **Tailscale** (acceso desde fuera de tu red) no está incluido todavía en este script de
-  Windows — el de la Mac usa comandos específicos de macOS. Si lo quieres en el Windows
-  dime y lo armamos aparte; mientras tanto, dentro de tu Wi-Fi ya funciona con
-  `https://IP-de-esta-PC:8766` (pide PIN).
+- Si ya no tienes `scripts/windows/edi.ps1` corriendo pero quieres el frente 8 (EDI leyendo/programando
+  también en tu Mac), eso vive aparte en `satellite/` — ver `satellite/LEEME.md`.
 - Si `edi.ps1` se queja de política de ejecución, es normal: Windows bloquea scripts por
   default. El `-ExecutionPolicy Bypass` en cada llamado (o en la tarea programada, que ya
   lo trae) lo resuelve sin tener que cambiar nada a nivel sistema.

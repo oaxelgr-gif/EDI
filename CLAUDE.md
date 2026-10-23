@@ -115,3 +115,78 @@ docker compose run --rm edi python -c "from edi import mail; print(mail.fetch_un
 - **F7 · Varios proveedores de IA con enrutador por tarea (`providers.py`):** se pueden agregar ChatGPT/OpenAI, Claude/Anthropic y DeepSeek desde Ajustes → Inteligencia (todos hablan el formato `/chat/completions` tipo OpenAI). Cada proveedor tiene un `tag` (`chat`/`code`/`image`) y `providers.active(tag=...)` prioriza el proveedor marcado para esa tarea antes de caer en la rotación normal (OmniRoute → Groq → OpenRouter → Gemini). Siguen sin ser gratis como los de siempre, pero si ya tienes cuenta en alguno EDI lo puede usar igual, sobre todo para código.
 - **Pendiente de tu parte (no se pudo probar fuera de tu Mac):** `./scripts/edi.sh rebuild` (nuevas dependencias `pypdf` y `python-docx`); una `GEMINI_API_KEY` configurada si quieres imágenes; revisar visualmente el logo/tipografía nueva y el timing de las muletillas de voz; y, si quieres que EDI lea archivos reales, editar el volumen `./data/files:/files` en `docker-compose.yml` apuntando a tu carpeta.
 - Pruebas: `tests/test_brain.py` (cerebro, onboarding, imágenes, edición de archivos).
+- **Sonidos sutiles (`app/static/js/voice/audio.js` → `cueMic`, `cueSpeak`, `cueAlert`):** tonos muy cortos y suaves (0,07-0,16 s, volumen bajo) sintetizados con Web Audio — nada de archivos de audio nuevos. `cueMic` suena al abrir el micrófono (botón, orbe, o cuando "EDI" queda armada esperando tu orden); `cueSpeak` suena un instante antes de que EDI empiece a hablar, en cualquier respuesta; `cueAlert` (dos notas) suena antes de un aviso que tú no pediste — recordatorio, correo nuevo — para que nunca te tome totalmente desprevenido. Cada uno tiene timbre distinto para que se distingan al oído sin ser invasivos, estilo el "clic" de WhatsApp al grabar nota de voz.
+
+## v0.8.2-0.8.3 — despliegue en Windows + arreglos de UI móvil
+- **`scripts/windows/edi.ps1` + `scripts/windows/LEEME.md` (nuevos):** equivalente a `edi.sh` pero para una PC Windows dedicada de bajos recursos (4 GB RAM) que hará de "server" — modo nativo sin Docker (`uv` + Python 3.12 + Node para el puente de WhatsApp), con `install-task`/`uninstall-task` para Tarea Programada de arranque automático, y detección de Tailscale (`Get-TailscaleIp`) para dar una URL utilizable desde cualquier red.
+- **UI móvil:** `html { background: var(--bg); overscroll-behavior: none; }` en `base.css` (rebote elástico de iOS mostraba el fondo de `<html>`); `look.js` ahora pasa `theme-color` en **hex**, no `rgb(...)` (iOS Safari ignora ese formato y se queda con el color viejo); `--glass-line` en modo claro pasó de blanco casi opaco a negro muy tenue (los separadores —como `.drawer-nav`— se veían como un tajo duro); se quitó todo `env(safe-area-inset-bottom)` en `shell.css`/`chat.css`/`views.css` por petición explícita del usuario (el contenido llega hasta el borde, aunque se monte la barra de inicio de iOS); `apple-touch-icon` ahora se pide con `?v=2` porque iOS cachea ese ícono por URL exacta, fuera del historial normal de Safari (borrar el acceso directo + historial no lo invalida).
+
+## v0.9 (frente 8) — EDI multi-dispositivo: satélites
+El cerebro de EDI (IA, memoria, pendientes) puede seguir centralizado en una sola máquina (el "server",
+p. ej. la Windows) mientras EDI lee, resume, propone cambios y corre comandos aprobados también en
+**otros** dispositivos (empezando por la Mac del usuario) — sin romper ninguna regla de seguridad ya
+establecida (confirmación antes de escribir, carpeta única autorizada, nunca fingir que algo se hizo).
+
+- **`satellite/edi_satellite.py` (nuevo, en la raíz del repo, fuera de `app/`):** programa de un solo
+  archivo, **sólo librería estándar de Python** (ni siquiera `httpx`) — corre en el dispositivo
+  adicional sin pip install. Expone una API HTTP chiquita (`ThreadingHTTPServer`):
+  `GET /health`, `GET /files?path=`, `GET /read?path=`, `POST /write` (path+content), `POST /run`
+  (cmd por nombre). Toda petición exige la cabecera `X-EDI-Secret` (comparada con `hmac.compare_digest`,
+  401 si no coincide). `_safe()` es el mismo patrón que `files._safe()` del server: nunca deja salir de
+  la única carpeta autorizada (`config.json → "folder"`). `/run` sólo acepta nombres que estén en
+  `config.json → "commands"` (un diccionario nombre→comando real) — **la lista blanca vive en el
+  satélite, no en el server**, así que aunque el modelo de IA alucine un comando, el satélite lo
+  rechaza igual. `satellite/config.example.json` + `satellite/LEEME.md` (guía paso a paso) +
+  `scripts/05_instalar_satelite.sh` (LaunchAgent para que quede prendido solo en la Mac, mismo patrón
+  que `04_instalar_helper.sh`).
+- **`app/edi/satellites.py` (nuevo):** lado servidor — cliente HTTP hacia los satélites (`ping`,
+  `read_remote`, `write_remote`, `run_remote`) y la lógica de negocio (`find_device` resuelve "mi mac"/
+  "la laptop" contra los satélites registrados por nombre aproximado; `summarize`/`propose_edit` son
+  los gemelos remotos de `files.summarize`/`files.propose_edit`, mismo flujo de diff + confirmación).
+- **`db.py`:** tabla nueva `satellites` (name único, url, secret, folder_label sólo informativo,
+  commands JSON sólo informativo, enabled). `file_edits` gana `satellite_id` (NULL = edición local,
+  con valor = en ese satélite) — **se reutiliza la misma tabla y el mismo flujo de confirmación** que
+  ya existía para archivos locales, no se duplicó nada.
+  `files.apply_edit()` ahora es el único punto de entrada: si el `file_edit` pendiente trae
+  `satellite_id`, delega a `satellites.apply_edit()` (que escribe por HTTP en vez de en disco local);
+  si no, sigue igual que siempre. `agent._file_edit_followup()` (el «¿lo guardo?» / «sí» / «cancela»)
+  no se tocó — ya funciona para ambos casos sin saberlo.
+- **`agent._brain`:** `BRAIN_PROMPT` suma `device_summary|device_edit|device_run` (gemelos de
+  `file_summary|file_edit` pero con un campo nuevo `"device"`) y una regla explícita: si el usuario no
+  menciona otro dispositivo, el modelo NUNCA debe usar estas acciones (evita falsos positivos del
+  modelo gratis chico). `agent._device_action()` resuelve el dispositivo, hace `ping` antes de
+  intentar nada, y si no hay dispositivos registrados o el nombre no se reconoce, responde claro y
+  abre Ajustes → Satélites en vez de adivinar — mismo criterio que ya se usó con el bug de "who" de
+  WhatsApp en v0.8.1 (preguntar > alucinar).
+- **Ajustes → Satélites (nueva pestaña, `views/settings.js` → `renderSatellites`):** CRUD completo
+  (nombre, URL, clave, para qué carpeta es, comandos aprobados que tú mismo escribes ahí como
+  recordatorio) + botón "Probar" que hace `ping` real. `api.js` suma los 6 endpoints correspondientes.
+  `app/edi/api/satellites.py` (nuevo router, mismo patrón que `connections.py` pero sin la abstracción
+  de "kinds" — los satélites son todos del mismo tipo).
+- **Windows (`scripts/windows/edi.ps1`):** ya detecta Tailscale (`Get-TailscaleIp`) y lo reporta al
+  arrancar — para que el server en Windows sea alcanzable desde cualquier red, no sólo la de casa.
+- Pruebas: `tests/test_satellites.py` — resolución de dispositivo (exacto/aproximado/ninguno), `ping`
+  nunca finge éxito, `_device_action` abre Ajustes si no hay satélites, pregunta si el nombre no
+  coincide, nunca dice que corrió algo si el satélite está apagado o el comando no está aprobado,
+  edición remota siempre guarda en el archivo `_EDI` hermano (nunca pisa el original), y el `_safe()`
+  del propio satélite (importado directo desde `satellite/edi_satellite.py` vía `importlib`, al no ser
+  parte del paquete `app/edi`) bloquea salir de su carpeta.
+
+**Pendiente de tu parte:** instalar y configurar al menos un satélite (ver `satellite/LEEME.md`) —
+nada de esto hace algo hasta que registres uno en Ajustes → Satélites. Si vas a desplegar el server en
+la Windows, `scripts/windows/edi.ps1 rebuild` trae este código; el satélite en la Mac es independiente
+del server y se instala con `./scripts/05_instalar_satelite.sh`.
+
+**Cimientos para el frente 9 (agente autónomo, decidido con el usuario pero NO implementado todavía):**
+el frente 8 fue diseñado a propósito como la base de un modo más autónomo más adelante — donde el
+usuario diga algo como "arréglame este bug en Pharma Control" y EDI entre en un ciclo de leer → proponer
+→ correr pruebas (vía `/run`, ya con lista blanca) → ver el resultado → ajustar, repitiendo varias veces
+antes de pedir el visto bueno final, en vez de una sola propuesta. Lo que YA deja listo este frente para
+eso, sin rehacer nada: el transporte autenticado y con carpeta/lista blanca ya existe (`satellites.py` +
+`edi_satellite.py`), el flujo de confirmación ya es genérico (`file_edits.satellite_id`), y
+`run_remote()` ya regresa salida real (stdout/stderr/código) para que un futuro ciclo pueda leerla y
+decidir el siguiente paso. Lo que falta para el frente 9 (no construido): el propio ciclo
+iterativo/estado de "intentos" en `agent.py`, un presupuesto de llamadas a IA por tarea (para no
+reventar las cuotas gratis de Groq/OpenRouter), y decidir qué tan autónomo puede ser antes de parar a
+preguntar. Se decidió por voz con el usuario construir primero el frente 8 (asistente sólido) y dejar el
+modo agente para después, a propósito.

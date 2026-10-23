@@ -17,7 +17,7 @@ log = logging.getLogger("edi.live")
 TABLE_KIND = {
     "tasks": "tasks", "notes": "notes", "sessions": "sessions", "messages": "messages", "drafts": "drafts",
     "settings": "settings", "providers": "providers", "connections": "connections", "accounts": "accounts",
-    "devices": "devices",
+    "devices": "devices", "satellites": "satellites", "file_edits": "file_edits",
 }
 DEBOUNCE = 0.15
 

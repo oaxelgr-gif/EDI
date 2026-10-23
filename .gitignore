@@ -11,3 +11,4 @@ assets/*.icns
 _to_delete/
 .runtime/
 whatsapp/node_modules/
+satellite/config.json

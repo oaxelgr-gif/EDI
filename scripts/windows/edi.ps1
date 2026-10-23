@@ -93,6 +93,14 @@ function Set-EnvFile($key, $val) {
   Set-Content -Path $envFile -Value $lines
 }
 
+# v0.9: si tienes Tailscale instalado en esta Windows, EDI lo usa para que el satelite (o tu Mac)
+# te hable sin importar la red en la que estes. No instala Tailscale: solo lo detecta si ya esta.
+function Get-TailscaleIp {
+  $ts = Get-Command tailscale -ErrorAction SilentlyContinue
+  if (-not $ts) { return "" }
+  try { ((& tailscale ip -4) | Select-Object -First 1).Trim() } catch { "" }
+}
+
 function Is-Running {
   if (-not (Test-Path $PidF)) { return $false }
   $procId = Get-Content $PidF -ErrorAction SilentlyContinue
@@ -115,6 +123,8 @@ function Start-Server {
   $env:EDI_HTTP_PORT   = "8765"
   $env:EDI_HTTPS_PORT  = "8766"
   $env:EDI_LAN_HOST    = Lan-Ip
+  $ts = Get-TailscaleIp
+  if ($ts) { $env:EDI_TS_HOST = $ts }
   $env:PYTHONPATH      = Join-Path $EdiDir "app"
   $env:PYTHONDONTWRITEBYTECODE = "1"
   $env:PYTHONUNBUFFERED = "1"
@@ -160,10 +170,11 @@ switch ($Cmd) {
       if (-not (Is-Running)) { break }
     }
     if ($ok) {
-      $ip = Lan-Ip
+      $ip = Lan-Ip; $ts = Get-TailscaleIp
       Say "EDI en linea."
       Say "  Esta PC:        http://127.0.0.1:8765"
-      if ($ip) { Say "  Otros equipos:  https://${ip}:8766  (pide PIN)" }
+      if ($ip) { Say "  Tu red local:   https://${ip}:8766  (pide PIN)" }
+      if ($ts) { Say "  Con Tailscale:  https://${ts}:8766  (pide PIN, funciona desde cualquier red)" }
     } else {
       Write-Error "El servidor no arranco. Revisa $SrvLog"
     }

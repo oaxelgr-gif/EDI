@@ -152,6 +152,9 @@ def apply_edit(eid: int) -> dict:
     e = db.get_file_edit(eid)
     if not e or e["status"] != "pending":
         return {"reply": "Ya no tengo ese cambio pendiente.", "data": {}, "intent": "file_edit"}
+    if e.get("satellite_id"):   # v0.9: el cambio es en otro dispositivo (satélite), no en la carpeta local
+        from . import satellites
+        return satellites.apply_edit(e)
     rel = e["path"]
     new_rel = _sibling_edi_name(rel)
     try:

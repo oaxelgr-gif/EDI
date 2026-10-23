@@ -100,6 +100,13 @@ export const api = {
   removeDevice: (id) => req("DELETE", `/api/devices/list/${encodeURIComponent(id)}`),
   logoutAll: () => req("POST", "/api/devices/logout-all"),
   tailscaleServe: () => req("POST", "/api/devices/tailscale/serve"),
+
+  satellites: () => req("GET", "/api/satellites"),
+  addSatellite: (d) => req("POST", "/api/satellites", d),
+  patchSatellite: (id, d) => req("PATCH", `/api/satellites/${id}`, d),
+  deleteSatellite: (id) => req("DELETE", `/api/satellites/${id}`),
+  testSatellite: (d) => req("POST", "/api/satellites/test", d),
+  testSavedSatellite: (id) => req("POST", `/api/satellites/${id}/test`),
   tts: async (text, voice, rate, pitch) => {
     const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json", "X-EDI-Client": clientId }, body: JSON.stringify({ text, voice, rate, pitch }) });
     if (!r.ok) throw new Error("tts");

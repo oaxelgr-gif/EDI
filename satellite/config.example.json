@@ -1,0 +1,11 @@
+{
+  "name": "mi mac",
+  "secret": "CAMBIA_ESTO",
+  "folder": "~/Documents/EDI-files-mac",
+  "folder_label": "Documents/EDI-files-mac",
+  "port": 8790,
+  "commands": {
+    "pytest": "pytest -q",
+    "git status": "git status"
+  }
+}

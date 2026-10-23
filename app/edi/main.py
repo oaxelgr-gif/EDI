@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, config, db, live, mail, providers, security
-from .api import chat, connections as conn_api, devices, events, mail as mail_api, memory, settings, voice, whatsapp as wa_api
+from .api import chat, connections as conn_api, devices, events, mail as mail_api, memory, satellites as sat_api, settings, voice, whatsapp as wa_api
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("edi")
@@ -32,7 +32,7 @@ class OriginMiddleware:
 
 
 app.add_middleware(OriginMiddleware)
-for r in (chat.router, memory.router, mail_api.router, settings.router, voice.router, events.router, devices.router, wa_api.router, conn_api.router):
+for r in (chat.router, memory.router, mail_api.router, settings.router, voice.router, events.router, devices.router, wa_api.router, conn_api.router, sat_api.router):
     app.include_router(r)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 app.mount("/api/images", StaticFiles(directory=config.IMAGES_DIR), name="images")  # v0.8: imágenes generadas

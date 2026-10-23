@@ -7,7 +7,7 @@ from datetime import datetime
 
 import json
 
-from . import db, drafts, files, mail, phrasing, profile, providers, web, whatsapp
+from . import db, drafts, files, mail, phrasing, profile, providers, satellites, web, whatsapp
 from .drafts import P_CANCEL, P_CONFIRM
 from .intents import fold
 from .intents import detect
@@ -135,18 +135,26 @@ BRAIN_PROMPT = (
     "Eres el router de EDI, un asistente personal en español de México. El usuario te habla de forma coloquial, "
     "sin frases exactas; tu trabajo es entender QUÉ quiere y, si pide algo chato puedes resolverlo tú mismo con una "
     "respuesta conversacional. Responde SIEMPRE con SOLO un JSON, sin texto antes ni después:\n"
-    '{"action": "add_task|add_note|complete_task|delete_task|wa_read|wa_summary|image|file_summary|file_edit|chat", '
-    '"text": "lo esencial (qué anotar/completar/buscar/dibujar), corto, sin fecha", '
+    '{"action": "add_task|add_note|complete_task|delete_task|wa_read|wa_summary|image|file_summary|file_edit|'
+    'device_summary|device_edit|device_run|chat", '
+    '"text": "lo esencial (qué anotar/completar/buscar/dibujar/el nombre EXACTO del comando a correr), corto, sin fecha", '
     '"when": "fecha/hora tal como la dijo, o vacío", '
     '"who": "a quién (persona de WhatsApp) si aplica, o vacío", '
     '"filename": "nombre o pista del archivo si pide leer/resumir/corregir uno, o vacío", '
+    '"device": "nombre del otro dispositivo si lo menciona (p. ej. \'mi mac\', \'la laptop\'), o vacío si no menciona ninguno", '
     '"reply": "SÓLO si action es \'chat\': tu respuesta normal, como seguirías la plática"}\n'
     "Guía: add_task = algo que hacer o que le recuerden. add_note = un dato suelto para recordar. "
     "complete_task/delete_task = terminar o quitar un pendiente que ya existe (usa 'text' para identificarlo). "
     "wa_read = quiere leer/ver mensajes de WhatsApp de alguien ('who'). wa_summary = quiere que le resumas esa "
     "conversación de WhatsApp. image = pide que le generes/dibujes/crees una imagen (pon la descripción en 'text'). "
-    "file_summary = pide que le resumas/leas/digas qué dice un archivo/PDF/Word suyo. "
-    "file_edit = pide que corrijas, programes o escribas algo DENTRO de un archivo suyo. "
+    "file_summary = pide que le resumas/leas/digas qué dice un archivo/PDF/Word suyo EN ESTA MISMA MÁQUINA (no mencionó "
+    "otro dispositivo). file_edit = pide que corrijas, programes o escribas algo DENTRO de un archivo suyo EN ESTA "
+    "MISMA MÁQUINA. device_summary/device_edit = exactamente lo mismo que file_summary/file_edit, pero el usuario "
+    "mencionó EXPLÍCITAMENTE otro dispositivo/computadora (p. ej. 'en mi mac', 'en la laptop') donde está ese archivo: "
+    "pon el nombre del dispositivo en 'device' y el archivo en 'filename'. device_run = pide correr/ejecutar/probar "
+    "algo (un comando, unas pruebas) en otro dispositivo que mencionó: 'device' el dispositivo, 'text' el nombre EXACTO "
+    "de lo que pidió correr, tal cual lo dijo, corto. Si no menciona ningún otro dispositivo, NUNCA uses "
+    "device_summary/device_edit/device_run: usa file_summary/file_edit o chat. "
     "Si nada de eso aplica y sólo es plática, pregunta o comentario: chat, y contesta de verdad en 'reply' "
     "siguiendo tu personalidad de siempre y los datos disponibles."
 )
@@ -258,7 +266,48 @@ def _brain(text: str, session_id: int, now) -> dict | None:
             return {"reply": out or f"No pude leer {rel}.", "intent": "file_summary", "provider": prov2}
         return files.propose_edit(rel, what or text, session_id)
 
+    if act in ("device_summary", "device_edit", "device_run"):
+        return _device_action(act, j, what, text, session_id)
+
     return None
+
+
+def _device_action(act: str, j: dict, what: str, text: str, session_id: int) -> dict:
+    """v0.9 (frente 8): variante de file_summary/file_edit, o correr un comando aprobado, en OTRO
+    dispositivo (un satélite). Si no hay ninguno registrado, o no se pudo conectar, EDI lo dice claro
+    en vez de fallar en silencio o fingir que lo hizo."""
+    sat = satellites.find_device(j.get("device") or "")
+    if not sat:
+        names = satellites.device_names()
+        if not names:
+            return {"reply": "Todavía no tienes ningún dispositivo satélite registrado. Te abro Ajustes para agregar uno.",
+                    "intent": "device_summary", "action": {"open": "settings", "tab": "satellites"}}
+        return {"reply": f"¿En cuál dispositivo? Tienes registrados: {names}.", "intent": "device_summary"}
+    ok, msg = satellites.ping(sat)
+    if not ok:
+        return {"reply": f"No pude conectar con «{sat['name']}» ahorita: {msg}", "intent": "device_summary"}
+
+    if act == "device_run":
+        cmd = (what or text or "").strip()
+        if not cmd:
+            return {"reply": f"¿Qué quieres que corra en «{sat['name']}»?", "intent": "device_run"}
+        return satellites.run_remote(sat, cmd)
+
+    name = (j.get("filename") or what or "").strip()
+    if not name:
+        return {"reply": f"¿De cuál archivo en «{sat['name']}»? Dime el nombre tal como lo tienes guardado.",
+                "intent": "device_summary"}
+    cands = satellites.find_remote(sat, name)
+    if not cands:
+        return {"reply": f"No encontré ningún archivo que se llame {name} en la carpeta autorizada de «{sat['name']}».",
+                "intent": "device_summary"}
+    if len(cands) > 1:
+        return {"reply": "Encontré varios: " + ", ".join(c["name"] for c in cands) + ". ¿Cuál?", "intent": "device_summary"}
+    rel = cands[0]["rel"]
+    if act == "device_summary":
+        out, prov2 = satellites.summarize(sat, rel, session_id, what if what != name else "")
+        return {"reply": out or f"No pude leer {rel} en «{sat['name']}».", "intent": "device_summary", "provider": prov2}
+    return satellites.propose_edit(sat, rel, what or text, session_id)
 
 
 def _generate_image(prompt: str, session_id: int) -> dict:
