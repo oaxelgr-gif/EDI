@@ -1,8 +1,9 @@
 // Arranque de la interfaz: enrutador por hash, menú lateral, estado y avisos en vivo.
-import { api } from "./api.js";
+import { api, clientId } from "./api.js";
 import { store } from "./store.js";
 import { $, $$, html, hydrateIcons, icon, raw, relTime } from "./ui/dom.js";
 import { toast } from "./ui/toast.js";
+import { whenIdle } from "./ui/live.js";
 import * as chat from "./views/chat.js";
 import * as mail from "./views/mail.js";
 import * as whatsapp from "./views/whatsapp.js";
@@ -103,20 +104,66 @@ async function health() {
   }
 }
 
+/* ---------- sincronización al instante entre dispositivos ---------- */
+// Qué tipos de dato le importan a cada vista (el servidor manda {"type":"changed","kinds":[...]}).
+const VIEW_KINDS = {
+  chat: ["messages", "sessions", "drafts"],
+  tasks: ["tasks", "connections"],
+  memory: ["notes"],
+  mail: ["mail", "accounts", "drafts"],
+  whatsapp: ["whatsapp", "drafts"],
+  settings: ["settings", "providers", "connections", "accounts", "devices"],
+};
+const ALL_KINDS = [...new Set(Object.values(VIEW_KINDS).flat()), "tasks"];
+const refreshTasks = () => api.tasks().then((t) => app.setTaskCount(t.length)).catch(() => {});
+const refreshMail = () => api.mail(false).then((m) => app.setMailCount(m.total)).catch(() => {});
+const waPoll = () => api.waStatus().then((st) => st.state === "open" ? api.waChats() : [])
+  .then((cs) => app.setWaCount(cs.reduce((n, c) => n + (c.unread || 0), 0))).catch(() => {});
+
+function onChanged(kinds, origin) {
+  const has = (...ks) => ks.some((k) => kinds.includes(k));
+  // Contadores del menú y lista de conversaciones: siempre (son baratos y no tocan lo que escribes)
+  if (has("tasks")) refreshTasks();
+  if (has("mail", "accounts")) refreshMail();
+  if (has("whatsapp")) waPoll();
+  if (has("sessions", "messages")) whenIdle($("#sessionList"), loadSessions);
+  if (has("settings")) api.settings().then((st) => store.set({ settings: st })).catch(() => {});
+  if (has("providers", "accounts")) health();
+  // La vista abierta: sólo si el cambio vino de OTRO dispositivo/pestaña (ésta ya se actualizó sola)
+  if (origin && origin === clientId) return;
+  const { name } = parseHash();
+  const mine = (VIEW_KINDS[name] || []).filter((k) => kinds.includes(k));
+  if (mine.length && currentView === VIEWS[name]) {
+    try { currentView.refresh?.(mine); } catch (e) { console.error(e); }
+  }
+}
+
 function connectEvents() {
   const es = new EventSource("/api/events");
+  let lost = false;
+  es.onerror = () => { lost = true; };
+  es.onopen = () => { if (lost) { lost = false; onChanged(ALL_KINDS, ""); } };   // se reconectó: ponte al día
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
+    if (ev.type === "changed") { onChanged(ev.kinds || [ev.kind], ev.origin || ""); return; }
     if (ev.type === "mail" && ev.mail) app.setMailCount(ev.mail.total);
     if (ev.type === "reminder" || ev.type === "tasks") {
-      api.tasks().then((t) => app.setTaskCount(t.length));
-      if (currentView?.refresh) currentView.refresh();
+      refreshTasks();
+      if (currentView === tasks) tasks.refresh(["tasks"]);
     }
+    if (!ev.text) return;
     chat.announce(ev.text);
     if (currentView !== chat) toast(ev.text, "info", 7000);
     if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification("EDI", { body: ev.text });
   };
 }
+// En el iPhone la conexión en vivo se corta al bloquear la pantalla: al volver, ponte al día
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (hiddenAt && Date.now() - hiddenAt > 5000) onChanged(ALL_KINDS, "");
+  hiddenAt = 0;
+});
 
 /* ---------- eventos globales ---------- */
 document.addEventListener("click", async (e) => {
@@ -174,9 +221,7 @@ window.addEventListener("hashchange", route);
   try { store.set({ settings: await api.settings() }); } catch {}
   await health();
   loadSessions();
-  api.tasks().then((t) => app.setTaskCount(t.length)).catch(() => {});
-  const waPoll = () => api.waStatus().then((st) => st.state === "open" ? api.waChats() : [])
-    .then((cs) => app.setWaCount(cs.reduce((n, c) => n + (c.unread || 0), 0))).catch(() => {});
+  refreshTasks();
   waPoll(); setInterval(waPoll, 60000);
   await route();
   connectEvents();

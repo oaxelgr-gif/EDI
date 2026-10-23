@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 #  EDI - control central (modo NATIVO, sin Docker: arranca en segundos y usa ~80 MB de RAM)
-#  Uso: ./scripts/edi.sh [start|stop|restart|status|logs|open|rebuild|test|backup]
+#  Uso: ./scripts/edi.sh [start|stop|restart|status|logs|open|rebuild|test|backup|tailscale [status|off|on]]
 #  Para volver a Docker: pon EDI_MODE=docker en .env (usa scripts/edi-docker.sh).
 # ============================================================
 set -euo pipefail
@@ -89,9 +89,24 @@ lan_ip() {
   for i in en0 en1 en2 en3 en4; do ip=$(ipconfig getifaddr "$i" 2>/dev/null || true); [ -n "$ip" ] && break; done
   echo "$ip"
 }
-set_env() {
+set_env() {   # CLAVE valor → reemplaza o agrega en .env (awk con ENVIRON: sin problemas con / & | en el valor)
   touch .env
-  if grep -q "^$1=" .env; then sed -i '' "s|^$1=.*|$1=$2|" .env; else printf '\n%s=%s\n' "$1" "$2" >> .env; fi
+  if grep -q "^$1=" .env; then
+    K="$1" V="$2" awk 'index($0, ENVIRON["K"] "=") == 1 { print ENVIRON["K"] "=" ENVIRON["V"]; next } { print }' .env > .env.tmp \
+      && cat .env.tmp > .env; rm -f .env.tmp
+  else printf '\n%s=%s\n' "$1" "$2" >> .env; fi
+}
+
+# Tailscale (opcional): IP 100.x, nombre MagicDNS y «tailscale serve» (HTTPS válido). Sin Tailscale deja todo vacío.
+TS_PORT=8768
+ts_py() { (cd "$EDI_DIR/app" && EDI_TS_ENABLE_URL="${TS_PENDING:-}" EDI_TS_PORT=$TS_PORT EDI_HTTPS_PORT=8766 PYTHONPATH="$EDI_DIR/app" PYTHONDONTWRITEBYTECODE=1 "$PY" -m edi.tailnet "$@"); }
+detect_tailscale() {
+  progress 70 "Buscando Tailscale (acceso desde fuera de casa)"
+  local line
+  TS_PENDING=$(grep -s '^EDI_TS_ENABLE_URL=' .env | cut -d= -f2- || true)
+  while IFS= read -r line; do
+    [[ "$line" =~ ^EDI_TS_[A-Z_]+= ]] && set_env "${line%%=*}" "${line#*=}"
+  done < <(ts_py env 2>>"$LOG" || true)
 }
 
 # Si quedó corriendo la versión de Docker, la apaga para liberar los puertos
@@ -107,7 +122,7 @@ stop_old_docker() {
 
 start_server() {
   load_env
-  export EDI_DATA_DIR="$DATA" EDI_CONFIG_DIR="$EDI_DIR/config" EDI_HTTP_HOST=127.0.0.1 EDI_HTTP_PORT=8765 EDI_HTTPS_PORT=8766 EDI_SHORTCUT_PORT=8767 \
+  export EDI_DATA_DIR="$DATA" EDI_CONFIG_DIR="$EDI_DIR/config" EDI_HTTP_HOST=127.0.0.1 EDI_HTTP_PORT=8765 EDI_HTTPS_PORT=8766 EDI_SHORTCUT_PORT=8767 EDI_TS_PORT=$TS_PORT \
          PYTHONPATH="$EDI_DIR/app" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
   unset EDI_WHATSAPP_URL
   [ -f "$SRV_LOG" ] && [ "$(wc -c < "$SRV_LOG")" -gt 2000000 ] && mv "$SRV_LOG" "$SRV_LOG.old"
@@ -190,6 +205,7 @@ case "$cmd" in
     [ -f config/accounts.yaml ] || cp config/accounts.example.yaml config/accounts.yaml 2>/dev/null || true
     set_env EDI_LAN_HOST "$(lan_ip)"
     ensure_python
+    detect_tailscale
     stop_server
     progress 80 "Arrancando EDI"
     start_server
@@ -210,5 +226,12 @@ case "$cmd" in
   backup)
     f="$HOME/Documents/edi-backup-$(date +%Y%m%d-%H%M).tar.gz"
     tar czf "$f" data config .env && say_msg "Respaldo en $f" ;;
-  *) echo "Uso: $0 [start|stop|restart|status|logs|open|rebuild|test|backup]"; exit 1 ;;
+  tailscale)
+    ensure_python
+    case "${2:-status}" in
+      off) ts_py off; set_env EDI_TS_URL ""; say_msg "Publicación de Tailscale quitada (el acceso directo https://IP-100.x:8766 sigue)." ;;
+      on)  set_env EDI_TS_SERVE 1; set_env EDI_TS_ENABLE_URL ""; detect_tailscale; grep '^EDI_TS_' .env ;;
+      *)   ts_py status ;;
+    esac ;;
+  *) echo "Uso: $0 [start|stop|restart|status|logs|open|rebuild|test|backup|tailscale [status|off|on]]"; exit 1 ;;
 esac

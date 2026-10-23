@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS mail_seen (uid TEXT PRIMARY KEY, account TEXT, create
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS providers (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT NOT NULL, base_url TEXT,
-    api_key TEXT, model TEXT, priority INTEGER DEFAULT 10, enabled INTEGER DEFAULT 1, created TEXT);
+    api_key TEXT, model TEXT, priority INTEGER DEFAULT 10, enabled INTEGER DEFAULT 1, created TEXT,
+    tag TEXT DEFAULT 'chat');
 CREATE TABLE IF NOT EXISTS usage (
     provider_id INTEGER, day TEXT, requests INTEGER DEFAULT 0, tokens INTEGER DEFAULT 0, errors INTEGER DEFAULT 0,
     last_error TEXT, PRIMARY KEY (provider_id, day));
@@ -39,6 +40,15 @@ CREATE TABLE IF NOT EXISTS drafts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, channel TEXT NOT NULL, account_id INTEGER,
     to_addr TEXT, to_name TEXT, subject TEXT, body TEXT, reply_uid TEXT, status TEXT DEFAULT 'pending',
     error TEXT, created TEXT);
+CREATE TABLE IF NOT EXISTS nicknames (
+    alias TEXT PRIMARY KEY, real_name TEXT NOT NULL, kind TEXT DEFAULT 'whatsapp', created TEXT);
+CREATE TABLE IF NOT EXISTS profile_facts (
+    key TEXT PRIMARY KEY, value TEXT NOT NULL, updated TEXT);
+CREATE TABLE IF NOT EXISTS file_edits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, path TEXT NOT NULL, kind TEXT NOT NULL,
+    instruction TEXT, preview TEXT, new_content TEXT, status TEXT DEFAULT 'pending', created TEXT);
+CREATE TABLE IF NOT EXISTS images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, prompt TEXT NOT NULL, path TEXT NOT NULL, created TEXT);
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, provider TEXT NOT NULL, host TEXT, port INTEGER DEFAULT 993,
     user TEXT NOT NULL, password TEXT, folders TEXT DEFAULT 'INBOX', enabled INTEGER DEFAULT 1, created TEXT);
@@ -54,15 +64,29 @@ def iso() -> str:
     return now().isoformat(timespec="seconds")
 
 
+_WRITES = (sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE)
+
+
 @contextmanager
 def conn():
     c = sqlite3.connect(config.DB_PATH)
     c.row_factory = sqlite3.Row
+    touched: set[str] = set()
+
+    def watch(action, table, *_):  # anota qué tablas se escriben (para avisar en vivo a los otros dispositivos)
+        if action in _WRITES and table:
+            touched.add(table)
+        return sqlite3.SQLITE_OK
+
+    c.set_authorizer(watch)
     try:
         yield c
         c.commit()
     finally:
         c.close()
+    if touched:
+        from . import live
+        live.notify(*live.kinds_for_tables(touched))
 
 
 def init():
@@ -85,6 +109,16 @@ def init():
         for col, ddl in (("smtp_host", "TEXT"), ("smtp_port", "INTEGER")):  # migración v0.4
             if col not in acols:
                 c.execute(f"ALTER TABLE accounts ADD COLUMN {col} {ddl}")
+        # v0.7: si nunca tocaste estos ajustes, los subo a los nuevos valores (charla más cálida y con más memoria)
+        legacy = {"llm_temperature": "0.4", "llm_history": "6"}
+        for key, new_val in (("llm_temperature", "0.65"), ("llm_history", "10")):
+            row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            if row and row["value"] == legacy[key]:
+                c.execute("UPDATE settings SET value=? WHERE key=?", (new_val, key))
+        # v0.8: proveedores con etiqueta (chat|code|image) para enrutar por tarea; perfil del usuario y archivos
+        pcols = {r["name"] for r in c.execute("PRAGMA table_info(providers)")}
+        if "tag" not in pcols:
+            c.execute("ALTER TABLE providers ADD COLUMN tag TEXT DEFAULT 'chat'")
 
 
 def rows(sql: str, args=()):
@@ -182,6 +216,73 @@ def due_reminders():
         if found:
             c.execute(f"UPDATE tasks SET reminded=1 WHERE id IN ({','.join('?' * len(found))})", [t["id"] for t in found])
         return found
+
+
+# ---------- apodos (v0.7: EDI los aprende solo, sin que le digas "recuerda que apa es papá") ----------
+def remember_nickname(alias: str, real_name: str, kind: str = "whatsapp"):
+    """Guarda/actualiza que cuando digas `alias` (p.ej. "apa") te refieres a `real_name` (p.ej. "Papá")."""
+    run("INSERT INTO nicknames(alias, real_name, kind, created) VALUES (?,?,?,?) "
+        "ON CONFLICT(alias) DO UPDATE SET real_name=excluded.real_name, kind=excluded.kind",
+        (alias.strip().lower(), real_name.strip(), kind, iso()))
+
+
+def get_nickname(alias: str, kind: str = "whatsapp") -> str | None:
+    r = one("SELECT real_name FROM nicknames WHERE alias=? AND kind=?", (alias.strip().lower(), kind))
+    return r["real_name"] if r else None
+
+
+def list_nicknames(kind: str | None = None):
+    return rows("SELECT * FROM nicknames WHERE kind=? ORDER BY alias", (kind,)) if kind else \
+        rows("SELECT * FROM nicknames ORDER BY kind, alias")
+
+
+def forget_nickname(alias: str, kind: str = "whatsapp") -> bool:
+    return run("DELETE FROM nicknames WHERE alias=? AND kind=?", (alias.strip().lower(), kind)) > 0
+
+
+# ---------- perfil del usuario (v0.8: EDI te conoce - entrevista inicial + lo que va aprendiendo) ----------
+PROFILE_KEYS = ("nombre", "ocupacion", "proyectos", "notas_perfil")  # notas_perfil: datos sueltos que no caben en los otros
+
+
+def set_profile(key: str, value: str):
+    run("INSERT INTO profile_facts(key, value, updated) VALUES (?,?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated=excluded.updated", (key, value.strip(), iso()))
+
+
+def get_profile() -> dict:
+    return {r["key"]: r["value"] for r in rows("SELECT * FROM profile_facts")}
+
+
+def profile_is_empty() -> bool:
+    return not one("SELECT 1 FROM profile_facts LIMIT 1")
+
+
+# ---------- edición de archivos (v0.8: EDI lee/resume/corrige archivos de una carpeta autorizada, con confirmación) ----------
+def add_file_edit(session_id: int, path: str, kind: str, instruction: str, preview: str, new_content: str) -> int:
+    return run("INSERT INTO file_edits(session_id, path, kind, instruction, preview, new_content, status, created) "
+               "VALUES (?,?,?,?,?,?,'pending',?)",
+               (session_id, path, kind, instruction, preview, new_content, iso()))
+
+
+def get_file_edit(eid: int):
+    return one("SELECT * FROM file_edits WHERE id=?", (eid,))
+
+
+def pending_file_edit(session_id: int):
+    return one("SELECT * FROM file_edits WHERE session_id=? AND status='pending' ORDER BY id DESC LIMIT 1", (session_id,))
+
+
+def set_file_edit_status(eid: int, status: str):
+    run("UPDATE file_edits SET status=? WHERE id=?", (status, eid))
+
+
+# ---------- imágenes generadas (v0.8) ----------
+def add_image(session_id: int, prompt: str, path: str) -> int:
+    return run("INSERT INTO images(session_id, prompt, path, created) VALUES (?,?,?,?)", (session_id, prompt, path, iso()))
+
+
+def list_images(limit: int = 30):
+    return rows("SELECT * FROM images ORDER BY id DESC LIMIT ?", (limit,))
 
 
 # ---------- notas ----------

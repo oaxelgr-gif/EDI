@@ -1,9 +1,16 @@
 // Cliente de la API de EDI. Todas las llamadas pasan por aquí.
+// clientId identifica esta pestaña: el servidor lo devuelve en los avisos "changed" para que la pestaña que hizo
+// el cambio no se refresque dos veces (las demás —Mac o celular— sí lo hacen).
+export const clientId = (() => {
+  try { if (crypto.randomUUID) return crypto.randomUUID().slice(0, 18); } catch {}
+  return Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+})();
+
 async function req(method, url, body) {
-  const opts = { method, headers: {} };
+  const opts = { method, headers: { "X-EDI-Client": clientId } };
   if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
   const r = await fetch(url, opts);
-  if (r.status === 401 && location.protocol === "https:") { location.href = "/login"; throw new Error("PIN requerido"); }
+  if (r.status === 401 && location.protocol === "https:") { location.href = "/login"; return new Promise(() => {}); }   // se va a /login: no hay nada más que hacer
   if (!r.ok) {
     let msg = `Error ${r.status}`;
     try { const j = await r.json(); msg = j.detail || msg; } catch {}
@@ -87,10 +94,14 @@ export const api = {
   siri: () => req("GET", "/api/devices/siri"),
   siriRotate: () => req("POST", "/api/devices/siri/rotate"),
   ttsStart: (text, voice, rate, pitch) => req("POST", "/api/tts/start", { text, voice, rate, pitch }),
-  devices: () => req("GET", "/api/devices"),
+  devices: (fresh = false) => req("GET", `/api/devices${fresh ? "?fresh=true" : ""}`),
   rotatePin: () => req("POST", "/api/devices/pin"),
+  deviceList: () => req("GET", "/api/devices/list"),
+  removeDevice: (id) => req("DELETE", `/api/devices/list/${encodeURIComponent(id)}`),
+  logoutAll: () => req("POST", "/api/devices/logout-all"),
+  tailscaleServe: () => req("POST", "/api/devices/tailscale/serve"),
   tts: async (text, voice, rate, pitch) => {
-    const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice, rate, pitch }) });
+    const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json", "X-EDI-Client": clientId }, body: JSON.stringify({ text, voice, rate, pitch }) });
     if (!r.ok) throw new Error("tts");
     return r.blob();
   },

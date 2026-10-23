@@ -29,6 +29,9 @@ export async function render(container, _params, ctx) {
 
 export function destroy() { clearInterval(timer); timer = null; }
 
+/** Se envió o leyó algo desde otro dispositivo: el mismo refresco silencioso de cada 5 s, pero ya. */
+export function refresh() { if (root?.isConnected) tick(false); }
+
 async function tick(force) {
   if (!root?.isConnected) return destroy();
   let st;

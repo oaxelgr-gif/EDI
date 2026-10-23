@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { $, el, esc, html, icon, raw } from "../ui/dom.js";
 import { openComposer } from "../ui/composer.js";
 import { toast } from "../ui/toast.js";
+import { whenIdle } from "../ui/live.js";
 
 let root, app, data = null;
 
@@ -31,6 +32,17 @@ export async function render(container, _params, ctx) {
   };
   $("#mailBody", root).addEventListener("click", onClick);
   load(false);
+}
+
+/** Se marcó leído / se envió / cambió una cuenta en otro dispositivo. Los correos abiertos se vuelven a abrir. */
+export function refresh() {
+  if (!root?.isConnected) return;
+  const body = $("#mailBody", root);
+  whenIdle(body, async () => {
+    const open = [...body.querySelectorAll(".mail-item")].filter((li) => !li.querySelector(".mail-full").hidden).map((li) => li.dataset.uid);
+    await load(false);
+    open.forEach((uid) => body.querySelector(`.mail-item[data-uid="${CSS.escape(uid)}"] [data-act=view]`)?.click());
+  });
 }
 
 async function load(force) {

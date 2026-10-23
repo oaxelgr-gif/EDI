@@ -9,7 +9,9 @@
   <title>EDI</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <!-- v0.8.3: iOS cachea el ícono del acceso directo por URL exacta, fuera del historial/caché normal de
+       Safari — borrar el acceso directo no lo invalida. El "?v=2" obliga a pedirlo de cero. -->
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
   <meta name="apple-mobile-web-app-title" content="EDI">
   <script>
     // Aplica el tema guardado antes de pintar (evita el parpadeo)
@@ -18,7 +20,7 @@
   <script src="/static/js/look.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&family=Newsreader:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/shell.css">
@@ -29,7 +31,7 @@
   <div class="shell" id="shell">
     <aside class="drawer glass" id="drawer" aria-label="Menú">
       <div class="drawer-head">
-        <span class="mark" aria-hidden="true"></span>
+        <img class="mark" src="/static/icon.svg" alt="" aria-hidden="true">
         <span class="wordmark">EDI</span>
         <button class="icon-btn drawer-close" data-action="close-drawer" aria-label="Cerrar menú"></button>
       </div>
@@ -51,6 +53,7 @@
     <div class="stage">
       <header class="topbar">
         <button class="icon-btn" data-action="toggle-drawer" aria-label="Abrir menú" data-icon="menu"></button>
+        <img class="brand-logo" src="/static/icon.svg" alt="EDI" width="28" height="28">
         <div class="topbar-title" id="topTitle">EDI</div>
         <button class="icon-btn" id="themeBtn" aria-label="Cambiar tema" title="Tema"></button>
         <div class="status glass" id="status" title="Estado"><span class="status-dot"></span><span class="status-text">conectando</span></div>

@@ -1,4 +1,5 @@
-"""Avisos en vivo (Server-Sent Events): recordatorios vencidos y correo nuevo."""
+"""Avisos en vivo (Server-Sent Events): recordatorios vencidos, correo nuevo y "changed" (sincronización
+al instante entre dispositivos, ver edi/live.py)."""
 import asyncio
 import json
 import logging
@@ -13,9 +14,14 @@ router = APIRouter(prefix="/api", tags=["eventos"])
 subscribers: set[asyncio.Queue] = set()
 
 
-async def broadcast(event: dict):
+def publish(event: dict):
+    """Versión síncrona (se llama dentro del bucle de asyncio)."""
     for q in list(subscribers):
         q.put_nowait(event)
+
+
+async def broadcast(event: dict):
+    publish(event)
 
 
 async def loop():

@@ -16,6 +16,7 @@ class ProviderIn(BaseModel):
     model: str = ""
     priority: int = 10
     enabled: int = 1
+    tag: str = "chat"   # v0.8: "chat" | "code" | "image" | "code,chat" — para qué tarea se prefiere
 
 
 class ProviderPatch(BaseModel):
@@ -26,6 +27,7 @@ class ProviderPatch(BaseModel):
     model: str | None = None
     priority: int | None = None
     enabled: int | None = None
+    tag: str | None = None
 
 
 class Order(BaseModel):
@@ -60,7 +62,8 @@ def add_provider(body: ProviderIn):
         raise HTTPException(400, "Tipo de proveedor desconocido.")
     if body.kind == "custom" and not body.base_url:
         raise HTTPException(400, "Escribe la URL base (termina en /v1).")
-    return {"id": providers.add(body.name, body.kind, body.base_url, body.api_key, body.model, body.priority, body.enabled)}
+    return {"id": providers.add(body.name, body.kind, body.base_url, body.api_key, body.model, body.priority,
+                                body.enabled, body.tag)}
 
 
 @router.patch("/providers/{pid}")

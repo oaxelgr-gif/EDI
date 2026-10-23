@@ -7,9 +7,7 @@
   transition: transform .3s var(--ease), margin .3s var(--ease), opacity .2s;
 }
 .drawer-head { display: flex; align-items: center; gap: 10px; padding: 2px 6px 10px; }
-.mark { width: 26px; height: 26px; border-radius: 50%; position: relative;
-  background: conic-gradient(from 200deg, var(--accent), var(--accent-2), var(--accent)); box-shadow: var(--glow); }
-.mark::after { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: var(--bg); }
+.mark { width: 28px; height: 28px; object-fit: contain; filter: drop-shadow(var(--glow)); flex-shrink: 0; }
 .wordmark { font-size: var(--fs-lg); font-weight: 600; letter-spacing: .14em; flex: 1; }
 .new-chat { width: 100%; margin: 2px 0 10px; padding: 10px 16px; }
 .drawer-nav { display: grid; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid var(--glass-line); }
@@ -38,6 +36,7 @@
 .scrim { display: none; }
 .stage { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar { display: flex; align-items: center; gap: 6px; padding: 2px 4px 6px; }
+.brand-logo { width: 28px; height: 28px; object-fit: contain; filter: drop-shadow(0 0 10px rgba(var(--accent-rgb), .35)); flex-shrink: 0; }
 .topbar-title { flex: 1; text-align: center; color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--text-2); padding: 6px 12px; border-radius: var(--r-pill); }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
@@ -62,7 +61,7 @@
   html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
   .shell { height: var(--app-h, 100dvh); }
   .shell { padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
-  .drawer { inset: calc(env(safe-area-inset-top) + 8px) auto calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 8px);
+  .drawer { inset: calc(env(safe-area-inset-top) + 8px) auto 8px calc(env(safe-area-inset-left) + 8px);
             width: min(86vw, var(--drawer)); overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .topbar { position: relative; z-index: 5; padding: 8px 10px 6px; min-height: 52px; }
   .topbar [data-action="toggle-drawer"] { width: 44px; height: 44px; border-radius: 14px; background: var(--glass-2);

@@ -30,10 +30,33 @@
     <div class="err" id="err" aria-live="polite"></div>
   </form>
   <script>
-    document.getElementById("f").addEventListener("submit", async (e) => {
+    const f = document.getElementById("f"), err = document.getElementById("err"), btn = f.querySelector("button");
+    let timer = null;
+    // Después de 5 intentos fallidos EDI pide esperar 5 minutos: cuenta regresiva y botón desactivado
+    function lock(sec) {
+      clearInterval(timer);
+      const tick = () => {
+        if (sec <= 0) { clearInterval(timer); btn.disabled = false; f.pin.disabled = false; err.textContent = "Ya puedes intentar de nuevo."; f.pin.focus(); return; }
+        btn.disabled = true; f.pin.disabled = true;
+        const m = Math.floor(sec / 60), s = String(sec % 60).padStart(2, "0");
+        err.textContent = `Demasiados intentos. Espera ${m}:${s} para volver a intentar.`;
+        sec--;
+      };
+      tick(); timer = setInterval(tick, 1000);
+    }
+    fetch("/api/login/state").then((r) => r.json()).then((s) => { if (s.wait) lock(s.wait); }).catch(() => {});
+    f.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: e.target.pin.value }) });
-      if (r.ok) location.href = "/"; else { document.getElementById("err").textContent = "PIN incorrecto. Revísalo en tu Mac."; e.target.pin.select(); }
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: f.pin.value }) });
+        if (r.ok) { location.href = "/"; return; }
+        const j = await r.json().catch(() => ({}));
+        if (j.wait) { lock(j.wait); return; }
+        err.textContent = j.detail || "PIN incorrecto. Revísalo en tu Mac.";
+        f.pin.select();
+      } catch { err.textContent = "No hay conexión con EDI. ¿Está encendido en tu Mac?"; }
+      btn.disabled = false;
     });
   </script>
 </body>

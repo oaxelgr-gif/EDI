@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from .. import whatsapp
+from .. import live, whatsapp
 
 router = APIRouter(prefix="/api/whatsapp", tags=["whatsapp"])
 
@@ -69,12 +69,16 @@ async def messages(jid: str):
 async def send(body: SendIn):
     if not body.text.strip():
         raise HTTPException(400, "El mensaje está vacío.")
-    return await asyncio.to_thread(_wrap, whatsapp.send, body.to, body.text.strip())
+    res = await asyncio.to_thread(_wrap, whatsapp.send, body.to, body.text.strip())
+    live.notify("whatsapp")
+    return res
 
 
 @router.post("/read")
 async def read(body: ReadIn):
-    return await asyncio.to_thread(_wrap, whatsapp.read, body.jid)
+    res = await asyncio.to_thread(_wrap, whatsapp.read, body.jid)
+    live.notify("whatsapp")
+    return res
 
 
 @router.post("/pair")

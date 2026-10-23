@@ -52,6 +52,14 @@ const SECTIONS = [
     "La primera vez el navegador avisará que el certificado no es de confianza: elige <b>Avanzado → Continuar</b>. Es tu propia Mac.",
     "Escribe el PIN de 6 dígitos. En el celular puedes usar <b>Compartir → Agregar a inicio</b> para tenerla como app.",
   ]],
+  ["globe", "Usar EDI fuera de casa", [
+    "Con <b>Tailscale</b> (gratis) abres EDI desde tu iPhone con datos móviles o en cualquier Wi‑Fi, sin abrir puertos de tu módem: sólo tus dispositivos lo ven.",
+    "Instálalo en la Mac y en el iPhone con <b>la misma cuenta</b> y vuelve a abrir EDI.app. En Ajustes → Dispositivos aparece <b>Desde cualquier lugar (Tailscale)</b> con su QR.",
+    "Si activas <b>HTTPS Certificates</b> en tu cuenta de Tailscale, la dirección <b>…ts.net</b> abre sin el aviso de “conexión no privada”.",
+    "Usa el mismo PIN. Tras 5 intentos fallidos la entrada se bloquea 5 minutos. ¿Perdiste el celular? En la Mac: <b>Cerrar sesión en todos los dispositivos</b>.",
+    "Todo se sincroniza al instante: lo que agregas, editas o borras en el celular aparece en la Mac (y al revés) sin recargar.",
+    "La Mac debe estar encendida, con EDI abierto y sin dormir.",
+  ]],
   ["key", "Inteligencia y consumo", [
     "En Ajustes → Inteligencia agrega OmniRoute, Groq, OpenRouter o Gemini y ordénalos. Si uno falla, EDI usa el siguiente.",
     "Si un proveedor retira un modelo, EDI elige otro disponible automáticamente.",

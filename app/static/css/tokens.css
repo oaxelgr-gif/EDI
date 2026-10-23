@@ -2,6 +2,7 @@
    Tema: data-theme="dark" | "light" en <html>; sin atributo sigue al sistema. */
 :root {
   --font: "Onest", -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-serif: "Newsreader", "Iowan Old Style", "Georgia", serif;  /* v0.8: lo que dice EDI, con más carácter */
   --fs-xs: .75rem; --fs-sm: .875rem; --fs-md: 1rem; --fs-lg: 1.2rem; --fs-xl: 1.44rem; --fs-2xl: 1.73rem; --fs-3xl: 2.2rem;
   --r-sm: 10px; --r-md: 14px; --r-lg: 22px; --r-pill: 999px;
   --col: 760px; --drawer: 288px;

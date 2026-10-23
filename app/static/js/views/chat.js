@@ -7,9 +7,15 @@ import { draftCard } from "../ui/composer.js";
 import * as listener from "../voice/listener.js";
 import { mountOrb } from "../voice/orb.js";
 import { hasPending, onSpeakState, playPending, speak, speakLevel, speakState, stop as stopSpeaking } from "../voice/speaker.js";
+import { cueAlert } from "../voice/audio.js";
 
 const STATE_LABEL = { idle: "", speaking: "hablando", loading: "preparando voz", listening: "te escucho", wake: "di “EDI” y tu orden", armed: "te escucho…", blocked: "" };
 const SUGGESTIONS = ["Dame mi resumen", "¿Tengo correos?", "Precio del dólar", "¿Cómo está el clima?", "Mis tareas"];
+// v0.8: para que la voz nunca se quede en silencio mientras EDI piensa — se habla apenas envías el mensaje
+// y se corta sola en cuanto llega la respuesta real (speak() ya hace stop() al entrar).
+const FILLERS = ["Mmm, déjame ver.", "A ver, dame un segundo.", "Va, checando.", "Ahí te digo, un momento.",
+                 "Déjame revisar eso."];
+let fillerTimer = null;
 
 let root, cleanup = [], listenState = "idle", ctx = {}, queued = null, renderId = 0;
 
@@ -93,8 +99,7 @@ function updateState() {
   const sp = speakState();
   if (prevSpeak === "speaking" && sp === "idle" && voiceTurn && !listener.listenMode()) {
     voiceTurn = false;
-    listener.chime(true);
-    listener.start("once");
+    listener.start("once");   // listener.js ya avisa con un tono al abrir el micrófono
   }
   prevSpeak = sp;
 }
@@ -107,13 +112,14 @@ function toggleMic() {
   else listener.start("once");
 }
 
-function addLine(role, text, { meta = "", alert = false, speakNow = false, sources = null, ttsId = null } = {}) {
+function addLine(role, text, { meta = "", alert = false, speakNow = false, sources = null, ttsId = null, imageUrl = null } = {}) {
   const list = $("#transcript", root);
   if (!list) return null;
   list.querySelector(".empty-hello")?.remove();
   list.querySelectorAll(".line.edi:not(.past)").forEach((n) => n.classList.add("past"));
   const li = el(role === "edi"
     ? html`<li class="line edi ${alert ? "alert" : ""}"><p>${text}</p>
+        ${imageUrl ? raw(`<img class="generated" src="${esc(imageUrl)}" alt="Imagen generada por EDI">`) : ""}
         <div class="line-meta">
           <button class="icon-btn" data-repeat title="Repetir" aria-label="Repetir en voz alta">${raw(icon("repeat"))}</button>
           ${meta ? raw(`<span>vía ${esc(meta)}</span>`) : ""}
@@ -188,21 +194,27 @@ export async function ask(text) {
   stopSpeaking();
   addLine("user", text);
   const t = typing();
+  clearTimeout(fillerTimer);
+  // si en 700ms no ha llegado la respuesta, EDI dice algo para no quedarse callada (se corta sola al llegar la real)
+  fillerTimer = setTimeout(() => speak(FILLERS[Math.floor(Math.random() * FILLERS.length)]), 700);
   try {
     const r = await api.ask(text, store.sessionId);
+    clearTimeout(fillerTimer);
     t.remove();
     if (r.session_id !== store.sessionId) {
       store.set({ sessionId: r.session_id });
       history.replaceState(null, "", `#/chat/${r.session_id}`);
     }
     if (r.repeat) { speak(r.reply, r.tts_id); return; }
-    const line = addLine("edi", r.reply, { meta: r.provider, speakNow: true, sources: r.data?.sources, ttsId: r.tts_id });
+    const line = addLine("edi", r.reply, { meta: r.provider, speakNow: true, sources: r.data?.sources, ttsId: r.tts_id,
+                                           imageUrl: r.data?.image_url });
     if (r.data?.draft) showDraft(line, r.data.draft);
     ctx.refreshSidebar?.();
     if (r.data?.mail) ctx.setMailCount?.(r.data.mail.total);
     if (r.data?.tasks) ctx.setTaskCount?.(r.data.tasks.length);
     if (r.action?.open) setTimeout(() => { location.hash = `#/${r.action.open}/${r.action.tab || ""}${r.action.new ? "?new=1" : ""}`; }, 1600);
   } catch (e) {
+    clearTimeout(fillerTimer);
     t.remove();
     addLine("edi", "No logro comunicarme con mi servidor. Revisa que Docker esté encendido.", { alert: true });
   }
@@ -220,8 +232,41 @@ function showDraft(line, d) {
   card.scrollIntoView({ block: "end", behavior: "smooth" });
 }
 
+/** Otro dispositivo escribió en ESTA conversación (o la renombró/borró): redibuja sólo la conversación.
+ *  El cuadro de texto y lo que estés dictando no se tocan. Si hay una respuesta en camino, espera a que llegue. */
+let syncing = false;
+export async function refresh(kinds = []) {
+  const sid = store.sessionId;
+  if (!root || !sid || syncing) return;
+  const list = $("#transcript", root);
+  if (!list || list.querySelector(".typing-line")) return;
+  syncing = true;
+  try {
+    const s = await api.session(sid);
+    if (!root || store.sessionId !== sid) return;
+    ctx.setTitle?.(s.title);
+    const shown = list.querySelectorAll(".line:not(.alert)").length;
+    if (!kinds.includes("messages") || s.messages.length === shown) return;
+    const atBottom = list.parentElement.scrollHeight - list.parentElement.scrollTop - list.parentElement.clientHeight < 80;
+    if (s.messages.length > shown && shown > 0 && sameStart(list, s.messages, shown)) {
+      s.messages.slice(shown).forEach((m) => addLine(m.role, m.text, { meta: m.meta }));   // sólo lo nuevo
+    } else {
+      list.innerHTML = "";
+      s.messages.forEach((m) => addLine(m.role, m.text, { meta: m.meta }));
+      if (!atBottom) list.parentElement.scrollTop = 0;
+    }
+  } catch (e) {
+    if (/ya no existe/.test(e.message) && root && store.sessionId === sid) { store.set({ sessionId: null }); location.hash = "#/chat"; }   // la borraron en otro lado
+  } finally { syncing = false; }
+}
+const sameStart = (list, msgs, n) => {
+  const ps = [...list.querySelectorAll(".line:not(.alert) > p")];
+  return ps.length === n && msgs.slice(0, n).every((m, i) => ps[i].textContent === m.text);
+};
+
 /** Avisos en vivo (recordatorios, correo nuevo) cuando esta vista está abierta. */
 export function announce(text) {
+  cueAlert();   // avisa con un sonido suave antes de hablar sola: que no te caiga de la nada
   if (root && $("#transcript", root)) addLine("edi", text, { alert: true, speakNow: true });
   else speak(text);
 }

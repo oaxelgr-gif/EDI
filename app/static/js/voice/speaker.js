@@ -1,7 +1,7 @@
 // Voz de salida. Primero voz neural del servidor (/api/tts, edge-tts); si falla, la del navegador.
 import { api } from "../api.js";
 import { store } from "../store.js";
-import { audioCtx, audioReady, levelOf } from "./audio.js";
+import { audioCtx, audioReady, levelOf, cueSpeak } from "./audio.js";
 
 let current = null;          // { audio, url, analyser }
 let analyser = null;
@@ -106,7 +106,7 @@ function playUrl(url, text) {
   audio.onended = () => { if (current?.audio === audio) stop(); };
   return new Promise((resolve, reject) => {
     let started = false;
-    audio.onplaying = () => { started = true; pending = null; setState("speaking"); resolve(); };
+    audio.onplaying = () => { started = true; pending = null; cueSpeak(); setState("speaking"); resolve(); };
     audio.onerror = () => {
       if (current?.audio !== audio) return;
       if (!started) { current = null; reject(new Error("audio")); } else stop();
@@ -133,7 +133,7 @@ function speakBrowser(text) {
     const u = new SpeechSynthesisUtterance(p.trim());
     u.lang = voice?.lang || "es-MX";
     if (voice) u.voice = voice;
-    if (i === 0) u.onstart = () => setState("speaking");
+    if (i === 0) u.onstart = () => { cueSpeak(); setState("speaking"); };
     if (i === parts.length - 1) u.onend = u.onerror = () => setState("idle");
     speechSynthesis.speak(u);
   });

@@ -1,8 +1,9 @@
 // Ajustes: General, Voz, Inteligencia (llaves y proveedores) y Correos (registro de cuentas).
 import { api } from "../api.js";
 import { store } from "../store.js";
-import { $, esc, html, icon, raw, relTime } from "../ui/dom.js";
+import { $, el, esc, html, icon, raw, relTime } from "../ui/dom.js";
 import { toast } from "../ui/toast.js";
+import { whenIdle } from "../ui/live.js";
 import { speak } from "../voice/speaker.js";
 
 const TABS = [["general", "General"], ["look", "Diseño"], ["voice", "Voz"], ["ai", "Inteligencia"], ["mail", "Correos"], ["connections", "Conexiones"], ["devices", "Dispositivos"]];
@@ -22,7 +23,23 @@ export async function render(container, params, ctx) {
     if (b) location.hash = `#/settings/${b.dataset.tab}`;
   });
   const body = $("#tabBody", root);
+  current = { tab, params, body, dirty: false };
+  body.addEventListener("input", (e) => { if (!e.target.closest?.(".no-dirty")) current.dirty = true; });   // cambios sin guardar: no redibujar encima
+  body.addEventListener("submit", () => setTimeout(() => { if (current?.body === body) current.dirty = false; }, 1500), true);
   ({ general: renderGeneral, look: renderLook, voice: renderVoice, ai: renderAI, mail: renderMail, connections: renderConnections, devices: renderDevices })[tab](body, params);
+}
+
+/* ---------------- Sincronización: algo cambió en otro dispositivo ---------------- */
+const TAB_KINDS = { general: ["settings"], voice: ["settings"], ai: ["providers"], mail: ["accounts"], connections: ["connections"], devices: ["devices", "settings"] };
+let current = null;
+export function refresh(kinds) {
+  if (!current || !root?.isConnected || current.dirty) return;
+  if (!(TAB_KINDS[current.tab] || []).some((k) => kinds.includes(k))) return;
+  const { tab, body } = current, params = { ...current.params, query: {} };
+  whenIdle(body, () => {
+    if (current?.body !== body || current.dirty || document.querySelector(".composer-sheet")) return;
+    ({ general: renderGeneral, voice: renderVoice, ai: renderAI, mail: renderMail, connections: renderConnections, devices: renderDevices })[tab]?.(body, params);
+  });
 }
 
 /* ---------------- Diseño: colores, transparencia y tema ---------------- */
@@ -545,31 +562,64 @@ function accountForm(box, a = null) {
 /* ---------------- Dispositivos ---------------- */
 async function renderDevices(body) {
   const d = await api.devices();
+  const ts = d.tailscale || {};
+  const mac = !d.remote;
+  const lockMin = Math.ceil((d.lock || 0) / 60);
   body.innerHTML = html`
     <div class="section">
       <h2>Usar EDI en otros dispositivos</h2>
-      <p>Celulares, tablets y otras computadoras conectadas a la misma red Wi‑Fi que esta Mac.</p>
-      ${d.lan_url ? raw(html`
-      <div class="panel glass device">
-        <div class="qr" id="qr" aria-label="Código QR">…</div>
-        <div style="display:grid;gap:10px">
-          <div class="muted">Escanea el código o abre:</div>
-          <div class="big-url">${d.lan_url}</div>
-          <div class="muted" style="margin-top:6px">PIN de acceso</div>
-          <div class="pin">${d.pin}</div>
-          <div class="row">${d.remote ? "" : raw(`<button class="btn" id="newPin">${icon("refresh")}Cambiar PIN</button>`)}
-            <button class="btn btn-quiet" id="copyUrl">Copiar dirección</button></div>
-        </div>
-      </div>`) : raw(`<div class="panel glass"><div class="hint">No encontré la IP de tu Mac en la red. Conéctate a Wi‑Fi y vuelve a abrir EDI.app.</div></div>`)}
-      <div class="panel glass">
-        <h2 style="font-size:var(--fs-lg)">Primera vez en cada dispositivo</h2>
-        <ul style="margin:0;padding-left:20px;color:var(--text-2);display:grid;gap:6px">
-          <li>El navegador dirá que la conexión “no es privada”: es tu propia Mac con un certificado local. Elige <b>Avanzado → Continuar</b> (en iPhone: <b>Mostrar detalles → visitar este sitio</b>).</li>
-          <li>Escribe el PIN y listo: el dispositivo queda recordado.</li>
-          <li>Para tenerlo como app: Safari → Compartir → <b>Agregar a pantalla de inicio</b>; Chrome → menú → <b>Instalar app</b>.</li>
-          <li>El micrófono funciona en Chrome (Android) y Safari (iPhone).</li>
-        </ul>
+      <p>Tu celular ve lo mismo que la Mac y todo se sincroniza al instante: lo que agregas, editas o borras en uno aparece en el otro.</p>
+      ${d.remote ? raw(`<div class="hint">Estás usando EDI ${d.via === "tailscale" ? "por <b>Tailscale</b> (desde cualquier lugar)" : "por el <b>Wi‑Fi de casa</b>"}.</div>`) : ""}
+      <div class="access-grid">
+        ${raw(accessCard({ id: "lan", title: "En casa (Wi‑Fi)", icon: "phone", url: d.lan?.url,
+          note: "Celular conectado al mismo Wi‑Fi que la Mac. La primera vez el navegador avisa del certificado: <b>Mostrar detalles → visitar este sitio</b>.",
+          empty: "No encontré la IP de tu Mac en la red. Conéctala a Wi‑Fi y vuelve a abrir EDI.app." }))}
+        ${raw(accessCard({ id: "tailscale", title: "Desde cualquier lugar (Tailscale)", icon: "globe", url: ts.running ? ts.url : "",
+          badge: ts.running ? (ts.valid_cert ? `<span class="badge ok">Certificado válido</span>` : `<span class="badge">Certificado local</span>`) : "",
+          note: ts.running
+            ? (ts.valid_cert ? "Funciona con datos móviles o en cualquier Wi‑Fi, sin avisos de seguridad. Sólo lo abren tus dispositivos con tu cuenta de Tailscale."
+                : "Funciona con datos móviles o en cualquier Wi‑Fi. La primera vez verás el aviso del certificado (igual que en casa).")
+              + (ts.enable_url && mac ? `<div class="ts-fix">Para quitar el aviso: <a href="${esc(ts.enable_url)}" target="_blank" rel="noopener">activa HTTPS en tu cuenta de Tailscale</a> y luego <button class="btn btn-quiet" id="tsRetry">${icon("refresh")}Ya lo activé</button></div>` : "")
+            : "",
+          empty: !ts.installed ? "Tailscale no está instalado en esta Mac. Sigue los pasos de abajo (es gratis) y vuelve a abrir EDI.app."
+            : "Tailscale está instalado pero apagado o sin sesión. Ábrelo en la barra de menú, inicia sesión y vuelve a abrir EDI.app." }))}
       </div>
+
+      <div class="panel glass">
+        <h2 style="font-size:var(--fs-lg)">PIN de acceso</h2>
+        <div class="pin-row"><div class="pin">${d.pin}</div>
+          <div class="row">${mac ? raw(`<button class="btn" id="newPin">${icon("refresh")}Cambiar PIN</button>
+            <button class="btn btn-quiet danger" id="logoutAll">${icon("out")}Cerrar sesión en todos los dispositivos</button>`) : ""}</div></div>
+        <p class="muted" style="margin:10px 0 0">Cada dispositivo lo escribe una sola vez. Después de 5 intentos fallidos la entrada se bloquea 5 minutos.
+          ${lockMin ? raw(`<b class="err">Bloqueada ahora: faltan ${lockMin} min.</b>`) : ""}</p>
+      </div>
+
+      <div class="panel glass">
+        <div class="panel-head-row"><h2 style="font-size:var(--fs-lg)">Dispositivos conectados</h2>
+          <button class="icon-btn" id="devReload" title="Actualizar" aria-label="Actualizar">${raw(icon("refresh"))}</button></div>
+        <ul class="items dev-list" id="devList"><li class="item muted">Cargando…</li></ul>
+      </div>
+
+      <div class="panel glass steps-panel">
+        <h2 style="font-size:var(--fs-lg)">${raw(icon("globe"))}Instalar Tailscale (una sola vez)</h2>
+        <ol class="steps">
+          <li><b>En la Mac:</b> descarga Tailscale de <a href="https://tailscale.com/download/mac" target="_blank" rel="noopener">tailscale.com/download/mac</a> (o la App Store), ábrelo y toca <b>Log in</b> en el ícono de la barra de menú. Usa tu cuenta de Google, Apple o Microsoft.</li>
+          <li><b>En el iPhone:</b> instala <b>Tailscale</b> desde la App Store, ábrelo e inicia sesión con <b>la misma cuenta</b>. Acepta agregar la configuración VPN y deja el interruptor encendido.</li>
+          <li>Opcional, para que no salga el aviso de certificado: en <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener">login.tailscale.com → DNS</a> deja activado <b>MagicDNS</b> y activa <b>HTTPS Certificates</b>.</li>
+          <li>En la Mac: <b>Apagar EDI</b> y vuelve a abrir <b>EDI.app</b>. Aquí aparecerá la dirección de Tailscale con su QR.</li>
+        </ol>
+      </div>
+
+      <div class="panel glass steps-panel">
+        <h2 style="font-size:var(--fs-lg)">${raw(icon("phone"))}Agregar EDI a la pantalla de inicio del iPhone</h2>
+        <ol class="steps">
+          <li>Escanea el QR con la cámara y ábrelo en <b>Safari</b>. Escribe el PIN.</li>
+          <li>Toca <b>Compartir</b> (cuadro con flecha) → <b>Agregar a pantalla de inicio</b> → <b>Agregar</b>.</li>
+          <li>Abre EDI desde su ícono: se ve como app, sin barras de Safari.</li>
+          <li>Consejo: si usas Tailscale, agrega <b>la dirección de Tailscale</b>; funciona en casa y fuera, con un solo ícono (cada dirección es un acceso distinto y pide el PIN una vez).</li>
+        </ol>
+      </div>
+
       <div class="panel glass" id="siriPanel">
         <h2 style="font-size:var(--fs-lg)">“Oye Siri, EDI” en tu iPhone</h2>
         <p class="muted">El iPhone no deja que una página escuche con la pantalla apagada. Con este atajo le hablas a EDI desde cualquier lugar del teléfono —incluso bloqueado— y Siri te lee la respuesta. Sigue la misma conversación: puedes decir “Oye Siri, EDI” → “envíalo”.</p>
@@ -577,14 +627,64 @@ async function renderDevices(body) {
       </div>
     </div>`;
   loadSiri($("#siriBody", body), d.remote);
-  if (d.lan_url) {
-    $("#qr", body).innerHTML = `<img src="/api/devices/qr.svg?t=${Date.now()}" alt="Código QR para abrir EDI en el celular">`;
-    $("#copyUrl", body).onclick = async () => { try { await navigator.clipboard.writeText(d.lan_url); toast("Dirección copiada"); } catch { toast(d.lan_url); } };
-    $("#newPin", body)?.addEventListener("click", async () => {
-      if (!confirm("Los dispositivos conectados tendrán que escribir el PIN nuevo. ¿Cambiarlo?")) return;
-      await api.rotatePin(); renderDevices(body);
-    });
+  loadDeviceList(body, mac);
+  $("#devReload", body).onclick = () => loadDeviceList(body, mac);
+  for (const [id, url] of [["lan", d.lan?.url], ["tailscale", ts.running ? ts.url : ""]]) {
+    if (!url) continue;
+    $(`#qr-${id}`, body).innerHTML = `<img src="/api/devices/qr.svg?target=${id}&t=${Date.now()}" alt="Código QR para abrir EDI en el celular">`;
+    $(`#copy-${id}`, body).onclick = async () => { try { await navigator.clipboard.writeText(url); toast("Dirección copiada"); } catch { prompt("Copia la dirección:", url); } };
   }
+  $("#newPin", body)?.addEventListener("click", async () => {
+    if (!confirm("Los dispositivos conectados tendrán que escribir el PIN nuevo. ¿Cambiarlo?")) return;
+    await api.rotatePin(); renderDevices(body);
+  });
+  $("#logoutAll", body)?.addEventListener("click", async () => {
+    if (!confirm("Se cerrará la sesión en todos los celulares y computadoras conectados y se creará un PIN nuevo. ¿Continuar?")) return;
+    try { const r = await api.logoutAll(); toast(`Listo. PIN nuevo: ${r.pin}`); renderDevices(body); } catch (e) { toast(e.message, "error"); }
+  });
+  $("#tsRetry", body)?.addEventListener("click", async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.classList.add("spin");
+    try {
+      const r = await api.tailscaleServe();
+      toast(r.ok ? "Listo: Tailscale ya da un certificado válido" : (r.error || "Aún no está activo"), r.ok ? "info" : "error");
+      if (r.ok) renderDevices(body);
+    } catch (err) { toast(err.message, "error"); }
+    b.disabled = false; b.classList.remove("spin");
+  });
+}
+
+function accessCard({ id, title, icon: ic, url, badge = "", note = "", empty = "" }) {
+  return `<div class="panel glass access" data-access="${id}">
+    <h3>${icon(ic)}${esc(title)} ${badge}</h3>
+    ${url ? `<div class="device">
+      <div class="qr" id="qr-${id}" aria-label="Código QR">…</div>
+      <div style="display:grid;gap:10px;min-width:0">
+        <div class="big-url">${esc(url)}</div>
+        <div class="row"><button class="btn btn-primary" id="copy-${id}">Copiar dirección</button></div>
+        <div class="muted access-note">${note}</div>
+      </div></div>` : `<div class="hint">${empty}</div>`}
+  </div>`;
+}
+
+async function loadDeviceList(body, mac) {
+  const ul = $("#devList", body);
+  if (!ul) return;
+  let list;
+  try { list = await api.deviceList(); } catch (e) { ul.innerHTML = html`<li class="item muted">${e.message}</li>`; return; }
+  ul.innerHTML = list.length ? list.map((x) => html`
+    <li class="item" data-dev="${x.id}">
+      <div class="item-body"><div class="item-title">${x.name || "Dispositivo"} ${x.current ? raw(`<span class="badge">este</span>`) : ""}</div>
+        <div class="item-sub"><span class="tag ${x.via === "tailscale" ? "work" : ""}">${x.via === "tailscale" ? "Tailscale" : "Wi‑Fi"}</span>
+          <span>último acceso ${relTime(x.last_seen)}</span>${x.ip && x.ip !== "127.0.0.1" ? raw(`<span class="muted">${esc(x.ip)}</span>`) : ""}</div></div>
+      <div class="item-actions">${mac || x.current ? raw(`<button class="btn btn-quiet" data-rm="${esc(x.id)}">${x.current ? "Salir" : "Quitar"}</button>`) : ""}</div>
+    </li>`).join("")
+    : `<li class="item muted" style="padding:14px">Ningún dispositivo ha entrado todavía. Esta Mac no aparece porque entra directo, sin PIN.</li>`;
+  ul.onclick = async (e) => {
+    const b = e.target.closest("[data-rm]"); if (!b) return;
+    const cur = b.textContent === "Salir";
+    if (!confirm(cur ? "¿Cerrar la sesión en este dispositivo?" : "Ese dispositivo tendrá que escribir el PIN otra vez. ¿Quitarlo?")) return;
+    try { await api.removeDevice(b.dataset.rm); if (cur) location.href = "/login"; else loadDeviceList(body, mac); } catch (err) { toast(err.message, "error"); }
+  };
 }
 
 async function loadSiri(box, remote) {
@@ -606,6 +706,12 @@ async function loadSiri(box, remote) {
     </ol>
     <p class="muted" style="margin-top:10px">Funciona con tu iPhone en el mismo Wi‑Fi que la Mac y EDI encendido. La llave es privada: si la compartiste por error, toca “Nueva llave” y actualiza el atajo.</p>`;
   $("#copySiri", box).onclick = async () => { try { await navigator.clipboard.writeText(s.url); toast("Dirección copiada"); } catch { prompt("Copia la dirección:", s.url); } };
+  if (s.url_ts) {
+    const p = el(html`<div class="hint" style="margin-top:12px">¿Lo quieres también fuera de casa? Con Tailscale encendido en el iPhone usa esta dirección en el atajo:
+      <div class="big-url" style="font-size:var(--fs-sm);margin:6px 0">${s.url_ts}</div><button class="btn btn-quiet" id="copySiriTs">Copiar dirección de Tailscale</button></div>`);
+    box.append(p);
+    $("#copySiriTs", box).onclick = async () => { try { await navigator.clipboard.writeText(s.url_ts); toast("Dirección copiada"); } catch { prompt("Copia la dirección:", s.url_ts); } };
+  }
   $("#rotSiri", box)?.addEventListener("click", async () => {
     if (!confirm("El atajo actual dejará de funcionar hasta que pegues la nueva dirección. ¿Continuar?")) return;
     await api.siriRotate(); loadSiri(box, remote);

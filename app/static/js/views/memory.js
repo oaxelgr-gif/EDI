@@ -2,6 +2,7 @@
 import { api } from "../api.js";
 import { $, html, icon, raw, relTime } from "../ui/dom.js";
 import { toast } from "../ui/toast.js";
+import { whenIdle } from "../ui/live.js";
 
 let root, timer;
 
@@ -51,6 +52,12 @@ export async function render(container) {
     }
   });
   load();
+}
+
+/** Cambió la memoria en otro dispositivo: recarga respetando la búsqueda y la nota que estés editando. */
+export function refresh() {
+  if (!root?.isConnected) return;
+  whenIdle($("#noteList", root), () => load($("#search", root)?.value || ""));
 }
 
 async function load(q = "") {

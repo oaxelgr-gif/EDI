@@ -10,16 +10,21 @@ services:
     environment:
       - EDI_DATA_DIR=/data
       - EDI_CONFIG_DIR=/config
+      - EDI_FILES_DIR=/files
       - EDI_LAN_HOST=${EDI_LAN_HOST:-}
       - EDI_WHATSAPP_URL=http://whatsapp:3000
     volumes:
       - ./data:/data              # memoria, tareas, certificados (persisten al apagar)
       - ./config:/config:ro
+      # v0.8: carpeta que EDI puede leer/resumir/corregir (nunca el resto de tu Mac). Por defecto una
+      # carpeta propia dentro de data/; cámbiala por la que tú quieras darle, p.ej.:
+      # - ~/Documents/EDI-files:/files
+      - ./data/files:/files
     ports:
       - "127.0.0.1:8765:8000"     # tu Mac: http://localhost:8765
       - "8766:8443"               # tu red: https://IP-de-tu-Mac:8766 (pide PIN)
     restart: "no"
-    mem_limit: 512m
+    mem_limit: 640m
     cpus: 1.0
 
   # Puente WhatsApp (dispositivo vinculado). Sin puertos publicados: sólo EDI lo usa.

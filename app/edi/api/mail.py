@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import agent, db, drafts, mail
+from .. import agent, db, drafts, live, mail
 
 router = APIRouter(prefix="/api", tags=["correo"])
 
@@ -113,6 +113,7 @@ async def mark_read(body: ReadIn):
     except Exception as e:
         raise HTTPException(409, mail.friendly(str(e)))
     agent.invalidate_mail()
+    live.notify("mail")
     return {"ok": True, "count": n}
 
 
@@ -123,6 +124,7 @@ async def send(body: SendIn):
         res = await asyncio.to_thread(drafts.send_email, body.account_id, body.to, body.subject, body.body, body.reply_uid)
     except Exception as e:
         raise HTTPException(409, str(e))
+    live.notify("mail")
     return res
 
 

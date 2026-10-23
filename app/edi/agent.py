@@ -5,7 +5,10 @@ import re
 import time
 from datetime import datetime
 
-from . import db, drafts, mail, providers, web, whatsapp
+import json
+
+from . import db, drafts, files, mail, phrasing, profile, providers, web, whatsapp
+from .drafts import P_CANCEL, P_CONFIRM
 from .intents import fold
 from .intents import detect
 
@@ -73,12 +76,16 @@ def _save_task(text: str, when, category: str = "") -> str:
     cat, text = (category, text) if category else category_from(text)
     cat = cat or "personal"
     due = when.strftime("%Y-%m-%dT%H:%M") if when else None
+    when_txt = human_dt(when) if when else ""
     dup = next((t for t in db.list_tasks() if fold(t["text"]) == fold(text) and (t["due"] or None) == due), None)
     if dup:
-        return f"Ya lo tenía en tus pendientes: {text}" + (f", {human_dt(when)}." if when else ".")
+        tail = f", {when_txt}." if when else "."
+        return phrasing.pick_for(None, "task_dup", phrasing.TASK_DUP).format(text=text, when=tail)
     db.add_task(text, when, category=cat)
     where = "pendientes de trabajo" if cat == "trabajo" else "tus pendientes"
-    return f"Listo, anotado en {where}: {text}" + (f". Te aviso {human_dt(when)}." if when else ".")
+    tail = phrasing.pick_for(None, "task_reminder", phrasing.TASK_SAVED_REMINDER).format(when=when_txt) if when else "."
+    base = phrasing.pick_for(None, "task_saved", phrasing.TASK_SAVED).format(where=where, text=text, when="")
+    return base.rstrip(".") + tail
 
 
 def _set_task_await(session_id: int, text: str):
@@ -107,7 +114,7 @@ def _task_followup(text: str, intent, session_id: int, now) -> dict | None:
     f = fold(text).strip(" ¿?¡!.")
     if re.match(r"^(cancela\w*|olvidalo|mejor no|no lo (agendes|anotes))\b", f):
         db.run("DELETE FROM settings WHERE key=?", (key,))
-        return {"reply": "Va, no lo anoto."}
+        return {"reply": phrasing.pick_for(session_id, "task_when_cancel", phrasing.TASK_WHEN_CANCEL)}
     when, _rest = parse_when(text, now)
     if when:
         db.run("DELETE FROM settings WHERE key=?", (key,))
@@ -121,40 +128,220 @@ def _task_followup(text: str, intent, session_id: int, now) -> dict | None:
         return None
     d["tries"] = 1
     db.run("UPDATE settings SET value=? WHERE key=?", (json.dumps(d), key))
-    return {"reply": "No entendí la fecha. Dime por ejemplo «mañana a las 3 de la tarde», «el viernes a las 10» o «sin fecha»."}
+    return {"reply": phrasing.pick_for(session_id, "task_when_bad", phrasing.TASK_WHEN_BAD)}
 
 
-def _memo_fallback(text: str, session_id: int, now) -> dict | None:
-    """Frases de pendientes/memoria que las reglas no entendieron: la IA las interpreta con el contexto y EDI las guarda de verdad."""
-    import json
+BRAIN_PROMPT = (
+    "Eres el router de EDI, un asistente personal en español de México. El usuario te habla de forma coloquial, "
+    "sin frases exactas; tu trabajo es entender QUÉ quiere y, si pide algo chato puedes resolverlo tú mismo con una "
+    "respuesta conversacional. Responde SIEMPRE con SOLO un JSON, sin texto antes ni después:\n"
+    '{"action": "add_task|add_note|complete_task|delete_task|wa_read|wa_summary|image|file_summary|file_edit|chat", '
+    '"text": "lo esencial (qué anotar/completar/buscar/dibujar), corto, sin fecha", '
+    '"when": "fecha/hora tal como la dijo, o vacío", '
+    '"who": "a quién (persona de WhatsApp) si aplica, o vacío", '
+    '"filename": "nombre o pista del archivo si pide leer/resumir/corregir uno, o vacío", '
+    '"reply": "SÓLO si action es \'chat\': tu respuesta normal, como seguirías la plática"}\n'
+    "Guía: add_task = algo que hacer o que le recuerden. add_note = un dato suelto para recordar. "
+    "complete_task/delete_task = terminar o quitar un pendiente que ya existe (usa 'text' para identificarlo). "
+    "wa_read = quiere leer/ver mensajes de WhatsApp de alguien ('who'). wa_summary = quiere que le resumas esa "
+    "conversación de WhatsApp. image = pide que le generes/dibujes/crees una imagen (pon la descripción en 'text'). "
+    "file_summary = pide que le resumas/leas/digas qué dice un archivo/PDF/Word suyo. "
+    "file_edit = pide que corrijas, programes o escribas algo DENTRO de un archivo suyo. "
+    "Si nada de eso aplica y sólo es plática, pregunta o comentario: chat, y contesta de verdad en 'reply' "
+    "siguiendo tu personalidad de siempre y los datos disponibles."
+)
+
+
+# v0.8.1: el modelo gratis (chico, rápido) a veces no logra aislar bien el campo "who" en frases sueltas
+# y mete ahí pedazos de la frase entera o del propio prompt ("leer mensajes", "qué tal los mensajes de...").
+# En vez de dejar que eso llegue a buscar contactos (y te conteste con nombres absurdos), se descarta y EDI
+# pregunta — más confiable que forzar al modelo chico a acertar siempre a la primera.
+_WHO_BAD = {"mensaje", "mensajes", "whatsapp", "wasap", "guasap", "chat", "conversacion", "queria", "quiero",
+            "ver", "que", "tal", "onda", "dijiste", "dijo", "escribio", "leer", "lee", "leeme", "resumen",
+            "resume", "ultimos", "ultimo", "nuevos", "tengo", "tenia"}
+
+
+def _clean_who(raw: str) -> str:
+    w = (raw or "").strip(" .,:;¿?¡!")
+    if not w:
+        return ""
+    words = fold(w).split()
+    if not words or len(words) > 4 or any(x in _WHO_BAD for x in words):
+        return ""
+    return w
+
+
+def _brain(text: str, session_id: int, now) -> dict | None:
+    """El cerebro de EDI (v0.8): en vez de reglas fijas, la IA entiende la frase con todo el contexto
+    (pendientes, notas, apodos, perfil, plática reciente) y decide qué hacer — y si sólo es plática,
+    responde ella misma en la misma llamada (no gasta dos)."""
     from .intents import parse_when
-    hist = db.session_messages(session_id, 8)[:-1] if session_id else []
-    ctx = "\n".join(f"{'Usuario' if h['role'] == 'user' else 'EDI'}: {h['text'][:200]}" for h in hist[-6:])
-    out, _ = providers.chat(
-        "Clasifica la ÚLTIMA frase del usuario para un asistente con pendientes y memoria. Responde SOLO JSON: "
-        '{"action": "add_task|add_note|none", "text": "qué anotar, breve, sin la fecha", "when": "fecha/hora tal como la dijo o vacío"}. '
-        "add_task = algo que hacer o que le recuerden (recordatorio, pendiente, tarea, cita). add_note = un dato para recordar "
-        "(no es una acción). Si la frase sólo comenta o corrige algo ya dicho, usa la conversación para completar text y when. "
-        f"Si no es nada de eso: none.\nConversación reciente:\n{ctx}\nÚltima frase: {text}", max_tokens=120)
+    hist = db.session_messages(session_id, 10)[:-1] if session_id else []
+    ctx_hist = "\n".join(f"{'Usuario' if h['role'] == 'user' else 'EDI'}: {h['text'][:200]}" for h in hist[-8:])
+    notes = db.search_notes(text, 3)
+    tasks = db.list_tasks()[:6]
+    nick = db.list_nicknames()
+    nick_txt = "; ".join(f"{n['alias']}={n['real_name']}" for n in nick)
+    ctx = (profile.context_snippet() + "\n"
+           + (f"Pendientes: {'; '.join(t['text'] for t in tasks)}\n" if tasks else "")
+           + (f"Notas relevantes: {'; '.join(x['text'] for x in notes)}\n" if notes else "")
+           + (f"Apodos conocidos: {nick_txt}\n" if nick else "")
+           + f"Conversación reciente:\n{ctx_hist}")
+    out, prov = providers.chat(text, context=ctx, system=BRAIN_PROMPT, max_tokens=320)
     if not out:
         return None
     try:
         j = json.loads(out[out.index("{"): out.rindex("}") + 1])
     except Exception:
         return None
-    act, what = j.get("action"), (j.get("text") or "").strip(" .")
-    if not what or act not in ("add_task", "add_note"):
-        return None
+    act = j.get("action") or "chat"
+    what = (j.get("text") or "").strip(" .")
+
+    if act == "chat":
+        reply = (j.get("reply") or "").strip()
+        return {"reply": reply, "intent": "chat", "provider": prov} if reply else None
+
     if act == "add_note":
+        if not what:
+            return None
         if any(fold(x["text"]) == fold(what) for x in db.list_notes(50)):
-            return {"reply": f"Eso ya lo tenía guardado: {what}.", "intent": "add_note"}
+            return {"reply": phrasing.pick_for(session_id, "note_dup", phrasing.NOTE_DUP).format(text=what), "intent": "add_note"}
         db.add_note(what)
-        return {"reply": f"Guardado en mi memoria: {what}.", "intent": "add_note"}
-    when, _ = parse_when(j.get("when") or "", now) if j.get("when") else (None, "")
-    if not when and TIME_WORDS.search(fold(text + " " + what)):
-        _set_task_await(session_id, what)
-        return {"reply": f"¿Para cuándo te recuerdo {what}? Por ejemplo «mañana a las 3», o di «sin fecha».", "intent": "add_task"}
-    return {"reply": _save_task(what, when), "intent": "add_task"}
+        return {"reply": phrasing.pick_for(session_id, "note_saved", phrasing.NOTE_SAVED).format(text=what), "intent": "add_note"}
+
+    if act == "add_task":
+        if not what:
+            return None
+        when, _ = parse_when(j.get("when") or "", now) if j.get("when") else (None, "")
+        if not when and TIME_WORDS.search(fold(text + " " + what)):
+            _set_task_await(session_id, what)
+            return {"reply": phrasing.pick_for(session_id, "task_when_q", phrasing.TASK_WHEN_Q).format(text=what), "intent": "add_task"}
+        return {"reply": _save_task(what, when), "intent": "add_task"}
+
+    if act == "complete_task":
+        t = db.find_task(what) if what else None
+        reply = phrasing.pick_for(session_id, "task_complete", phrasing.TASK_COMPLETE).format(text=t["text"]) \
+            if t and db.complete_task(t["id"]) else \
+            phrasing.pick_for(session_id, "task_complete_fail", phrasing.TASK_COMPLETE_FAIL)
+        return {"reply": reply, "intent": "complete"}
+
+    if act == "delete_task":
+        t = db.find_task(what) if what else None
+        ok = t and db.delete_task(t["id"])
+        reply = phrasing.pick_for(session_id, "task_deleted", phrasing.TASK_DELETED) if ok else \
+            phrasing.pick_for(session_id, "task_delete_fail", phrasing.TASK_DELETE_FAIL)
+        return {"reply": reply, "intent": "delete_task"}
+
+    if act in ("wa_read", "wa_summary"):
+        who = _clean_who(j.get("who") or "")
+        if not who:
+            return drafts.ask_who_read(session_id, 5, act == "wa_summary")
+        return drafts.read_chat(session_id, who, 5, summary=(act == "wa_summary"))
+
+    if act == "image":
+        if not what:
+            return None
+        return _generate_image(what, session_id)
+
+    if act in ("file_summary", "file_edit"):
+        name = (j.get("filename") or what or "").strip()
+        if not name:
+            return {"reply": "¿De cuál archivo? Dime el nombre tal como lo tienes guardado.", "intent": "file_summary"}
+        cands = files.find(name)
+        if not cands:
+            return {"reply": f"No encontré ningún archivo que se llame {name} en tu carpeta de EDI.", "intent": "file_summary"}
+        if len(cands) > 1:
+            return {"reply": "Encontré varios: " + ", ".join(c["name"] for c in cands) + ". ¿Cuál?", "intent": "file_summary"}
+        rel = cands[0]["rel"]
+        if act == "file_summary":
+            out, prov2 = files.summarize(rel, session_id, what if what != name else "")
+            return {"reply": out or f"No pude leer {rel}.", "intent": "file_summary", "provider": prov2}
+        return files.propose_edit(rel, what or text, session_id)
+
+    return None
+
+
+def _generate_image(prompt: str, session_id: int) -> dict:
+    """v0.8: 'genérame una imagen de...' -> Gemini (Nano Banana) la crea y EDI la manda directo al chat."""
+    png, err = providers.generate_image(prompt)
+    if err == "sin_llave_gemini":
+        return {"reply": "Para generar imágenes necesito una llave de Gemini activa. Te abro Ajustes → Inteligencia.",
+                "intent": "image", "action": {"open": "settings", "tab": "ai"}}
+    if not png:
+        log.warning("generate_image: %s", err)
+        if err and "503" in err:
+            reply = "Gemini está saturado ahorita con la generación de imágenes; dale otra vez en un rato."
+        elif err and "429" in err:
+            reply = "Se acabó la cuota gratis de imágenes de Gemini por hoy; vuelve a intentar mañana."
+        else:
+            reply = "No pude generar la imagen ahora; intenta de nuevo en un rato."
+        return {"reply": reply, "intent": "image"}
+    name = f"{db.iso().replace(':', '-')}.png"
+    from . import config
+    (config.IMAGES_DIR / name).write_bytes(png)
+    db.add_image(session_id or 0, prompt, name)
+    return {"reply": f"Aquí tienes: {prompt}.", "intent": "image", "data": {"image_url": f"/api/images/{name}"}}
+
+
+SKIP_ONBOARD = re.compile(r"^(?:no|paso|salta(?:lo)?|despues|luego|ahorita no|al rato|otro dia|otro rato)\b")
+
+
+def _onboard_pending(session_id: int) -> str | None:
+    r = db.one("SELECT value FROM settings WHERE key=?", (f"_onboard_{session_id}",))
+    return r["value"] if r else None
+
+
+def _onboard_set(session_id: int, key: str | None):
+    k = f"_onboard_{session_id}"
+    if key:
+        db.run("INSERT INTO settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, key))
+    else:
+        db.run("DELETE FROM settings WHERE key=?", (k,))
+
+
+def _onboard_followup(text: str, session_id: int) -> dict | None:
+    """v0.8: entrevista inicial de EDI (quién eres, a qué te dedicas, qué proyectos llevas). Se hace una
+    sola vez; si no la respondes, EDI no vuelve a insistir sola. También la arranca si el perfil está vacío."""
+    if not session_id:
+        return None
+    key = _onboard_pending(session_id)
+    if key:
+        if not SKIP_ONBOARD.match(fold(text).strip()):
+            profile.save_onboarding_answer(key, text)
+        else:
+            profile.save_onboarding_answer(key, "")  # queda "contestada" (vacía) para no insistir con lo mismo
+        nxt = profile.onboarding_step(session_id)
+        if nxt:
+            _onboard_set(session_id, nxt["data"]["onboarding"])
+            return nxt
+        _onboard_set(session_id, None)
+        return {"reply": "Listo, ya te ubico mejor. Conforme platiquemos voy aprendiendo el resto solo.",
+                "intent": "onboarding"}
+    if profile.needs_onboarding() and not db.one("SELECT 1 FROM settings WHERE key=?", (f"_onboard_done_{session_id}",)):
+        step = profile.onboarding_step(session_id)
+        if step:
+            _onboard_set(session_id, step["data"]["onboarding"])
+            db.run("INSERT INTO settings(key, value) VALUES(?,'1') ON CONFLICT(key) DO NOTHING",
+                   (f"_onboard_done_{session_id}",))
+            step["reply"] = ("Para ubicarte mejor, déjame hacerte unas preguntas rápidas (puedes decir «paso» "
+                             "si no quieres ahorita). " + step["reply"])
+            return step
+    return None
+
+
+def _file_edit_followup(text: str, session_id: int) -> dict | None:
+    """Confirmación de un cambio de archivo que EDI ya propuso ('¿lo guardo?')."""
+    if not session_id:
+        return None
+    pend = db.pending_file_edit(session_id)
+    if not pend:
+        return None
+    f = fold(text).strip()
+    if P_CONFIRM.match(f):
+        return files.apply_edit(pend["id"])
+    if P_CANCEL.match(f):
+        return files.discard_edit(pend["id"])
+    return None
 
 
 def agenda_text(f: str, now) -> str:
@@ -281,6 +468,24 @@ def handle(text: str, session_id: int, log_it: bool = True) -> dict:
         db.log_message(session_id, "user", text)
     data, action, prov = {}, None, None
 
+    # v0.8: seguimientos con prioridad (apodo nuevo de WhatsApp aparte, en drafts) - estos dos van primero
+    # porque la siguiente frase del usuario suele ser literalmente la respuesta a lo que EDI preguntó.
+    fe = _file_edit_followup(text, session_id)
+    if fe:
+        if log_it:
+            db.log_message(session_id, "edi", fe["reply"])
+        _last_reply[session_id] = fe["reply"]
+        fe.setdefault("data", {}); fe.setdefault("action", None); fe.setdefault("provider", None)
+        return fe
+    if n not in ("repeat",):
+        ob = _onboard_followup(text, session_id)
+        if ob:
+            if log_it:
+                db.log_message(session_id, "edi", ob["reply"])
+            _last_reply[session_id] = ob["reply"]
+            ob.setdefault("action", None); ob.setdefault("provider", None)
+            return ob
+
     pend_task = _task_followup(text, intent, session_id, now)
     if pend_task:
         if log_it:
@@ -288,14 +493,20 @@ def handle(text: str, session_id: int, log_it: bool = True) -> dict:
         _last_reply[session_id] = pend_task["reply"]
         return {"intent": "add_task", "data": {"tasks": db.list_tasks()}, "action": None, "provider": None, **pend_task}
 
+    # 0 tokens: si la frase trae pistas directas de ocupación/proyecto, las aprende sin pasar por la IA
+    if n == "chat":
+        profile.learn_from_text(text)
+
     comms = drafts.handle(text, session_id) if n not in ("repeat",) else None
-    if comms is None and n == "chat" and MEMO_HINT.search(fold(text)):
-        memo = _memo_fallback(text, session_id, now)
-        if memo:
+    if comms is None and n == "chat":
+        brain = _brain(text, session_id, now)
+        if brain:
             if log_it:
-                db.log_message(session_id, "edi", memo["reply"])
-            _last_reply[session_id] = memo["reply"]
-            return {"data": {"tasks": db.list_tasks()}, "action": None, "provider": None, **memo}
+                db.log_message(session_id, "edi", brain["reply"], brain.get("provider") or "")
+            _last_reply[session_id] = brain["reply"]
+            brain.setdefault("data", {}); brain.setdefault("action", None); brain.setdefault("provider", None)
+            brain["data"].setdefault("tasks", db.list_tasks())
+            return brain
     if comms is None and (n == "chat" or (n == "search" and drafts.COMMS_HINT.search(fold(text)))
                           or (n in ("greet", "mail", "search", "weather") and drafts.has_context(session_id))):
         comms = drafts.fallback(text, session_id)
@@ -385,7 +596,7 @@ def handle(text: str, session_id: int, log_it: bool = True) -> dict:
         elif not intent.when and TIME_WORDS.search(fold(text)):
             _set_task_await(session_id, intent.text)
             from .work_voice import category_from
-            reply = f"¿Para cuándo te recuerdo {category_from(intent.text)[1]}? Por ejemplo «mañana a las 3», o di «sin fecha»."
+            reply = phrasing.pick_for(session_id, "task_when_q", phrasing.TASK_WHEN_Q).format(text=category_from(intent.text)[1])
         else:
             reply = _save_task(intent.text, intent.when)
             data["tasks"] = db.list_tasks()
@@ -401,24 +612,27 @@ def handle(text: str, session_id: int, log_it: bool = True) -> dict:
             t = next((x for x in db.list_tasks() if x["id"] == intent.ref), None)
         elif intent.text:
             t = db.find_task(intent.text)
-        reply = f"Hecho. Taché: {t['text']}." if t and db.complete_task(t["id"]) else \
-            "No encontré ese pendiente. Dime 'mis tareas' para revisarlos."
+        reply = phrasing.pick_for(session_id, "task_complete", phrasing.TASK_COMPLETE).format(text=t["text"]) \
+            if t and db.complete_task(t["id"]) else \
+            phrasing.pick_for(session_id, "task_complete_fail", phrasing.TASK_COMPLETE_FAIL)
         data["tasks"] = db.list_tasks()
     elif n == "delete_task":
         ok = intent.ref and db.delete_task(intent.ref)
-        reply = "Pendiente eliminado." if ok else "Dime el número del pendiente que quieres borrar."
+        reply = phrasing.pick_for(session_id, "task_deleted", phrasing.TASK_DELETED) if ok else \
+            phrasing.pick_for(session_id, "task_delete_fail", phrasing.TASK_DELETE_FAIL)
         data["tasks"] = db.list_tasks()
     elif n == "add_note":
         if intent.text and any(fold(x["text"]) == fold(intent.text) for x in db.list_notes(50)):
-            reply = f"Eso ya lo tenía guardado: {intent.text}."
+            reply = phrasing.pick_for(session_id, "note_dup", phrasing.NOTE_DUP).format(text=intent.text)
         elif intent.text:
             db.add_note(intent.text)
-            reply = f"Guardado en mi memoria: {intent.text}."
+            reply = phrasing.pick_for(session_id, "note_saved", phrasing.NOTE_SAVED).format(text=intent.text)
         else:
             reply = "¿Qué quieres que recuerde?"
     elif n == "delete_note":
         ok = intent.ref and db.delete_note(intent.ref)
-        reply = "Lo olvidé." if ok else "Dime el número de la nota."
+        reply = phrasing.pick_for(session_id, "note_forgot", phrasing.NOTE_FORGOT) if ok else \
+            phrasing.pick_for(session_id, "note_forgot_fail", phrasing.NOTE_FORGOT_FAIL)
     elif n == "list_notes" or (n == "recall" and not intent.text):
         notes = db.list_notes(8)
         reply = ("Lo último que me pediste recordar: " + "; ".join(x["text"] for x in notes) + "."
@@ -452,7 +666,7 @@ def handle(text: str, session_id: int, log_it: bool = True) -> dict:
             reply = "No tengo ningún proveedor de IA activo. Te abro Ajustes para agregar uno."
             action = {"open": "settings", "tab": "ai"}
         else:
-            reply = "Mis proveedores de IA no respondieron. Revisa tu conexión o las llaves en Ajustes."
+            reply = phrasing.pick_for(session_id, "no_providers", phrasing.NO_PROVIDERS)
 
     _last_reply[session_id] = reply
     if log_it:

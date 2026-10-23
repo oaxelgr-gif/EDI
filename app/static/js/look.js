@@ -30,6 +30,9 @@
   }
   function mix(c1, c2, t) { return c1.map(function (v, i) { return Math.round(v * (1 - t) + c2[i] * t); }); }
   function css(rgb, a) { return a === undefined ? "rgb(" + rgb.join(",") + ")" : "rgba(" + rgb.join(",") + "," + a + ")"; }
+  function hex(rgb) {
+    return "#" + rgb.map(function (v) { return Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0"); }).join("");
+  }
   function isDark() {
     var t = document.documentElement.dataset.theme;
     return t === "dark" || (!t && !(window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches));
@@ -56,12 +59,19 @@
       "--glass": dark ? css([255, 255, 255], al(0.055)) : css([255, 255, 255], al(0.5)),
       "--glass-2": dark ? css([255, 255, 255], al(0.09)) : css([255, 255, 255], al(0.66)),
       "--glass-3": dark ? css([255, 255, 255], al(0.14)) : css([255, 255, 255], al(0.85)),
-      "--glass-line": dark ? css([255, 255, 255], al(0.12)) : css([255, 255, 255], al(0.85)),
+      // v0.8.3: en claro esta línea se usa como separador (menú, tarjetas) — con blanco casi
+      // opaco (como antes) se ve como un tajo duro cortando la pantalla; con negro muy tenue
+      // queda como una rayita discreta, que es lo que debe ser un divisor.
+      "--glass-line": dark ? css([255, 255, 255], al(0.12)) : css([0, 0, 0], al(0.09)),
       "--blur": "saturate(170%) blur(" + (look.blur == null ? 22 : look.blur) + "px)",
     };
     for (var k in vars) s.setProperty(k, vars[k]);
+    // v0.8.3: iOS Safari tiene un bug donde theme-color en formato rgb(...) no lo toma y se
+    // queda con el color anterior (la línea blanca/negra que "no se mueve" aunque cambie el tema) —
+    // en hex sí lo respeta siempre.
+    var bgHex = hex(dark ? mix([8, 8, 12], A, 0.05) : mix([246, 246, 250], A, 0.06));
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = vars["--bg"];
+    if (meta) meta.content = bgHex;
     try { window.dispatchEvent(new CustomEvent("edi:look")); } catch (e) {}
   }
 

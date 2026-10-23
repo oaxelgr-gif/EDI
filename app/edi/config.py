@@ -16,6 +16,14 @@ DB_PATH = DATA_DIR / "edi.sqlite3"
 ACCOUNTS_FILE = CONFIG_DIR / "accounts.yaml"
 MS_TOKEN_CACHE = DATA_DIR / "ms_token_cache.json"
 TTS_CACHE = DATA_DIR / "tts"
+IMAGES_DIR = DATA_DIR / "images"
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+# v0.8: carpeta autorizada para que EDI lea/resuma/edite archivos y programe (nunca el disco completo).
+# Por defecto una carpeta propia dentro de data/; en docker-compose puedes montar ahí la carpeta real que
+# quieras darle, p.ej. ~/Documents/EDI-files, con EDI_FILES_DIR.
+FILES_DIR = Path(_env("EDI_FILES_DIR", str(DATA_DIR / "files")))
+FILES_DIR.mkdir(parents=True, exist_ok=True)
 
 TIMEZONE = _env("TZ", "America/Mexico_City")
 MS_CLIENT_ID = _env("MS_CLIENT_ID")
@@ -26,8 +34,8 @@ DEFAULT_SETTINGS = {
     "sync_minutes": "10",          # cada cuánto se sincronizan Jira/GitHub/Slack (0 = sólo manual)
     "user_name": _env("EDI_USER_NAME", "jefe"),
     "llm_max_tokens": _env("LLM_MAX_TOKENS", "350"),
-    "llm_history": "6",
-    "llm_temperature": "0.4",
+    "llm_history": "10",        # mensajes de contexto que recuerda en la plática (antes 6: más memoria = charla más natural)
+    "llm_temperature": "0.65",  # antes 0.4: más calidez y variedad en cómo contesta, menos "de manual"
     "mail_max_per_account": _env("MAIL_MAX_PER_ACCOUNT", "15"),
     "mail_check_minutes": _env("MAIL_CHECK_MINUTES", "15"),
     "home_city": _env("EDI_CITY", "Querétaro"),

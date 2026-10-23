@@ -184,6 +184,14 @@ def _norm(s: str) -> str:
     return " ".join(s.split())
 
 
+def alias_key(s: str) -> str:
+    """Normaliza un apodo/alias igual en todos lados (al guardarlo y al buscarlo), para que 'de mi papá',
+    '¿apa?' y 'Apa' sean la misma llave. No quita una "a" inicial sin espacio detrás (artículo "a Juan"
+    ya se filtra antes en los patrones que capturan "who"), para no comerse alias que empiezan con A,
+    como "apa" transcrito con ruido de voz como "a pa"."""
+    return re.sub(r"^(?:de\s+|del\s+|el\s+|la\s+|los\s+|las\s+|con\s+|mi\s+|mis\s+)+", "", _norm(s)).strip()
+
+
 _pool_cache = {"t": 0.0, "v": []}
 
 
@@ -202,9 +210,12 @@ def _pool() -> list:
 
 def find_contacts(name: str) -> list:
     """Busca por nombre aproximado en tu agenda de WhatsApp, chats y grupos ('mamá', 'mi jefa', 'Juan Pérez').
-    Regresa los mejores candidatos (normalmente uno)."""
+    Primero revisa si `name` es un apodo que EDI ya aprendió ("apa" -> "Papá"). Regresa los mejores candidatos
+    (normalmente uno)."""
     import difflib
-    q = _norm(name)
+    from . import db
+    nick = db.get_nickname(alias_key(name))
+    q = _norm(nick or name)
     q = re.sub(r"^(?:a\s+)?(?:mi|mis|el|la|los|las)\s+", "", q).strip() or q
     if not q:
         return []

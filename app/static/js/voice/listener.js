@@ -1,6 +1,6 @@
 // Voz de entrada con el reconocimiento del navegador (Chrome/Safari): no gasta nada en tu Mac.
 // Modos: "once" (botón de micrófono) y "wake" (escucha continua; responde cuando dices "EDI, ...").
-import { audioCtx, audioReady, levelOf } from "./audio.js";
+import { audioCtx, audioReady, levelOf, cueMic } from "./audio.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export const canListen = !!SR;
@@ -16,20 +16,7 @@ const handlers = { result: () => {}, interim: () => {}, state: () => {}, error: 
 export function on(evt, fn) { handlers[evt] = fn; }
 
 /** Tono corto: "te escucho". */
-export function chime(up = true) {
-  try {
-    if (!audioReady()) return;
-    const c = audioCtx(), o = c.createOscillator(), g = c.createGain(), t = c.currentTime;
-    o.type = "sine";
-    o.frequency.setValueAtTime(up ? 660 : 880, t);
-    o.frequency.exponentialRampToValueAtTime(up ? 990 : 520, t + 0.12);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-    o.connect(g).connect(c.destination);
-    o.start(t); o.stop(t + 0.2);
-  } catch { /* sin sonido */ }
-}
+export function chime(up = true) { cueMic(up); }
 const arm = (ms = FOLLOW_MS) => { armedUntil = Date.now() + ms; handlers.state("armed"); chime(true); };
 export const isArmed = () => Date.now() < armedUntil;
 export const listenMode = () => mode;
@@ -62,7 +49,7 @@ export function start(m = "once") {
   rec.onstart = () => {
     startedAt = Date.now();
     handlers.state(m === "once" ? "listening" : (Date.now() < armedUntil ? "armed" : "wake"));
-    if (m === "once") openMicMeter();
+    if (m === "once") { chime(true); openMicMeter(); }
   };
   rec.onresult = (e) => {
     let interim = "", final = "";

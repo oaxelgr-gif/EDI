@@ -236,6 +236,8 @@ def _handle(text: str, session_id: int) -> dict | None:
         if not _looks_like_command(f):
             _clear_await(session_id)
             pick = _pick(f, aw.get("cands") or [])
+            if pick and aw.get("orig_who"):
+                _learn_nickname(aw["orig_who"], pick["name"])
             if aw.get("need") == "read":
                 if pick:
                     return _wa_summary(pick) if aw.get("summary") else _wa_read(pick, aw.get("n") or 5)
@@ -410,6 +412,8 @@ def send_draft(did: int) -> dict:
             whatsapp.send(d["to_addr"], d["body"])
             res = {"ok": True, "message": f"Listo, le mandé el WhatsApp a {d['to_name'] or d['to_addr']}."}
         db.update_draft(did, status="sent")
+        from . import live
+        live.notify("mail" if d["channel"] == "email" else "whatsapp")
         return res
     except Exception as e:
         db.update_draft(did, error=str(e)[:200])
@@ -433,7 +437,7 @@ def _with_recipient(session_id: int, channel: str, who: str, msg: str) -> dict:
                     msg = msg or _clean_msg(" ".join(words[k:]))
                     break
         if not target:
-            _set_await(session_id, {"channel": channel, "need": "who", "msg": msg,
+            _set_await(session_id, {"channel": channel, "need": "who", "msg": msg, "orig_who": who,
                                     "cands": [{"jid": c["jid"], "name": c["name"]} for c in problem["data"].get("cands", [])]})
             return problem
     else:
@@ -563,6 +567,14 @@ ORD = {"primero": 0, "primera": 0, "1": 0, "uno": 0, "segundo": 1, "segunda": 1,
 YES = {"si", "ese", "esa", "ese mero", "esa misma", "ese mismo", "correcto", "ok", "exacto", "eso", "simon", "sip", "aja", "ese es", "esa es"}
 
 
+def _learn_nickname(orig_who: str, real_name: str):
+    """v0.7: cuando el usuario confirma a quién se refería (p.ej. 'apa' -> 'Papá'), EDI lo recuerda solo,
+    sin que haga falta decirle 'recuerda que...'. Sólo guarda si el apodo no es ya el nombre real."""
+    alias = whatsapp.alias_key(orig_who)
+    if alias and alias != whatsapp._norm(real_name) and len(alias) >= 2:
+        db.remember_nickname(alias, real_name)
+
+
 def _pick(f: str, cands: list) -> dict | None:
     """Elige entre las opciones que EDI acaba de ofrecer: 'sí', 'el segundo', 'Chino Birrias'…"""
     if not cands:
@@ -579,13 +591,34 @@ def _pick(f: str, cands: list) -> dict | None:
     return hits[0] if len(hits) == 1 else None
 
 
+def read_chat(session_id: int, who: str, n: int = 5, summary: bool = False) -> dict:
+    """v0.8: punto de entrada público para que el cerebro (agent._brain) pida leer/resumir un chat de
+    WhatsApp sin tener que repetir la lógica de desambiguación."""
+    if not _wa_ready():
+        return _wa_not_ready("wa_summary" if summary else "wa_read")
+    return _read_who(session_id, who, n, summary)
+
+
+def ask_who_read(session_id: int, n: int = 5, summary: bool = False) -> dict:
+    """v0.8: el cerebro detectó que quieres leer/resumir WhatsApp pero no logró sacar un nombre creíble de
+    la frase (pasa con el modelo gratis en frases muy sueltas, p. ej. 'qué tal los mensajes'). En vez de
+    adivinar y buscar basura entre tus contactos, pregunta — y deja armado el mismo seguimiento que usan
+    las reglas locales (0 tokens), así tu próxima respuesta ('papá', 'mi jefe'…) ya cae directo."""
+    if not _wa_ready():
+        return _wa_not_ready("wa_summary" if summary else "wa_read")
+    if session_id:
+        _set_await(session_id, {"need": "read", "n": n, "summary": summary})
+    pregunta = "¿De quién quieres que te resuma la conversación?" if summary else "¿De quién quieres que te lea los mensajes?"
+    return {"reply": pregunta, "data": {}, "intent": "ask_who"}
+
+
 def _read_who(session_id: int, who: str, n: int, summary: bool) -> dict:
     found = whatsapp.find_contacts(who)
     if len(found) == 1:
         return _wa_summary(found[0]) if summary else _wa_read(found[0], n)
     cands = found or whatsapp.suggest(who)
     if cands:
-        _set_await(session_id, {"need": "read", "n": n, "summary": summary,
+        _set_await(session_id, {"need": "read", "n": n, "summary": summary, "orig_who": who,
                                 "cands": [{"jid": c["jid"], "name": c["name"]} for c in cands]})
     if found:
         return {"reply": "Encontré varios: " + _names(found) + ". ¿De cuál?", "data": {}, "intent": "wa_read"}

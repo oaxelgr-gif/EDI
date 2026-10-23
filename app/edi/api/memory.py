@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import db, work
+from .. import db, files as files_mod, profile as profile_mod, work
 from ..connectors import ConnectorError
 from ..intents import parse_when
 
@@ -181,3 +181,63 @@ def patch_note(nid: int, body: NotePatch):
 @router.delete("/notes/{nid}")
 def delete_note(nid: int):
     return {"ok": db.delete_note(nid)}
+
+
+# ---------- apodos aprendidos (v0.7) ----------
+@router.get("/nicknames")
+def nicknames():
+    """Lo que EDI ha aprendido solo: 'apa' -> 'Papá', etc. Se llena sin que lo pidas, confirmando a quién te referías."""
+    return db.list_nicknames()
+
+
+@router.delete("/nicknames/{alias}")
+def delete_nickname(alias: str, kind: str = "whatsapp"):
+    return {"ok": db.forget_nickname(alias, kind)}
+
+
+# ---------- perfil del usuario (v0.8) ----------
+class ProfileIn(BaseModel):
+    key: str
+    value: str
+
+
+@router.get("/profile")
+def get_profile():
+    return {"facts": db.get_profile(), "needs_onboarding": profile_mod.needs_onboarding()}
+
+
+@router.put("/profile")
+def set_profile(body: ProfileIn):
+    if body.key not in profile_mod.PROFILE_KEYS:
+        raise HTTPException(400, f"Llave de perfil desconocida: {body.key}")
+    db.set_profile(body.key, body.value)
+    return {"ok": True}
+
+
+# ---------- archivos autorizados (v0.8: EDI lee/resume/corrige dentro de esta carpeta, nunca fuera) ----------
+@router.get("/files")
+def list_files():
+    return files_mod.list_files()
+
+
+@router.get("/files/edits")
+def list_file_edits(session_id: int | None = None):
+    rows = db.rows("SELECT * FROM file_edits ORDER BY id DESC LIMIT 20") if session_id is None else \
+        db.rows("SELECT * FROM file_edits WHERE session_id=? ORDER BY id DESC LIMIT 20", (session_id,))
+    return rows
+
+
+@router.post("/files/edits/{eid}/apply")
+def apply_file_edit(eid: int):
+    return files_mod.apply_edit(eid)
+
+
+@router.post("/files/edits/{eid}/discard")
+def discard_file_edit(eid: int):
+    return files_mod.discard_edit(eid)
+
+
+# ---------- imágenes generadas (v0.8) ----------
+@router.get("/images")
+def list_images():
+    return db.list_images()

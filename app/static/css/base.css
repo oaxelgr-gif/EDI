@@ -1,4 +1,8 @@
 * { box-sizing: border-box; }
+/* v0.8.2: el rebote elástico de Safari en iPhone enseña el fondo del <html> al jalar más allá del
+   borde de la pantalla — si sólo el <body> tiene color, ahí se ve una línea blanca o negra cortando
+   todo el ancho. Con el fondo también en <html> y el rebote apagado, no vuelve a pasar. */
+html { background: var(--bg); overscroll-behavior: none; }
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg);
@@ -6,6 +10,7 @@ body {
   font: 400 var(--fs-md)/1.55 var(--font);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 /* luz ambiental detrás del vidrio */
 body::before {

@@ -3,6 +3,7 @@
 import { api } from "../api.js";
 import { $, esc, html, icon, raw } from "../ui/dom.js";
 import { toast } from "../ui/toast.js";
+import { whenIdle } from "../ui/live.js";
 
 let root, app, tasks = [], view = "agenda", month = startOfMonth(new Date()), pickDay = null, conns = [];
 let cat = (() => { try { return localStorage.getItem("edi.taskCat") || "all"; } catch { return "all"; } })();
@@ -100,7 +101,12 @@ export async function render(container, _params, ctx) {
   load();
 }
 
-export function refresh() { if (root?.isConnected) load(); }
+/** Cambió algo en otro dispositivo (o llegó un recordatorio): redibuja la lista sin tocar lo que escribes arriba. */
+export function refresh(kinds = ["tasks"]) {
+  if (!root?.isConnected) return;
+  if (kinds.includes("connections")) api.connections().then((c) => { conns = c; $("#syncBtn", root).hidden = !c.some((x) => x.enabled); }).catch(() => {});
+  if (kinds.includes("tasks")) whenIdle($("#taskList", root), load);
+}
 
 async function load() {
   tasks = await api.tasks(true);
